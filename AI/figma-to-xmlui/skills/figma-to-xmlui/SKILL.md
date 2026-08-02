@@ -22,7 +22,7 @@ Write the files into the host project when filesystem tools are available. If fi
 ### 1. Inspect the Host Project
 
 - Read the project's instructions before editing.
-- Find the `.uproject`, XmlUI settings, target module, export macro, existing widget base classes, naming conventions, source directories, design baseline, DPI policy, and font policy instead of importing assumptions from another project.
+- Read the XmlUI settings: the base class comes exclusively from `XmlUISettings.BaseWidgetClass`, and widget types come exclusively from the `XmlUISettings.WidgetClassMap` configuration (tags that are not configured use the DSL default widgets). Find the `.uproject`, target module, export macro, naming conventions, source directories, design baseline, DPI policy, and font policy instead of importing assumptions from another project. Do not invent conventions that are absent from the configuration; everything is governed by the XmlUISettings configuration.
 - Read [references/xmlui-dsl.md](references/xmlui-dsl.md) before mapping the design.
 - Read [references/cpp-contract.md](references/cpp-contract.md) before generating the paired contract.
 - Consult [references/examples.md](references/examples.md) only when a concrete layout or binding pattern is useful.
@@ -67,7 +67,8 @@ When intent is ambiguous, prefer the smallest useful structure and list the omis
 
 ### 5. Map to XmlUI
 
-- Use only `XmlUI`, `Vertical`, `Horizontal`, `Overlay`, `SizeBox`, `Text`, `Image`, `Button`, `Spacer`, and `ProgressBar`.
+- Use only `XmlUI`, `Vertical`, `Horizontal`, `Overlay`, `SizeBox`, `Text`, `Image`, `Button`, `Spacer`, `ProgressBar`, `WrapBox`, and `Grid`.
+- The default mapping of layout containers (such as `Vertical` → `UVerticalBox`) is decided by the host's `WidgetClassMap` configuration; the Skill does not need to care about concrete classes when generating XML.
 - Prefer Figma Auto Layout hierarchy over absolute coordinates.
 - Use `Overlay` for genuine stacking or limited local positioning, not as a substitute for every layout.
 - Use `SizeBox` when a dimension must be fixed; `DesiredSize` on `Image` is only a desired size.
@@ -104,9 +105,11 @@ Use this document shape; the generation note belongs inside the root because the
 ### 7. Write the C++ Contract
 
 - Resolve the actual module, API macro, class name, and source path from the host project.
+- Base the contract class on `XmlUISettings.BaseWidgetClass` (default `UUserWidget`; a host may configure `USampleWidget` or similar).
+- Prefer the `XmlUISettings.WidgetClassMap` mapping (tag → class) for member binding types; use the default map in [references/cpp-contract.md](references/cpp-contract.md) for tags that are not configured.
+- When the host configures `BaseWidgetClass`, set the root XML `ParentClass` to that configured class path; otherwise let the baker use `BaseWidgetClass`.
 - Bind only widgets that runtime code reads, updates, populates, or listens to. Static presentation nodes do not need properties.
 - Bind a container when runtime code needs it, such as a dynamic reward-row host.
-- Set XML `ParentClass` to `/Script/<Module>.<ClassNameWithoutU>` after the class is known.
 - Keep the header minimal. Add a `.cpp` only for real method or event-handler implementations; do not add a constructor that performs no work.
 - For a Blueprint-only project, omit the C++ contract and omit `ParentClass` unless the user or project settings provide a loadable class path; the baker will use `BaseWidgetClass`.
 

@@ -22,8 +22,21 @@ Treat this file as the syntax source of truth. The parser and builder are permis
 | `Button` | `UXmlButton` | zero or one | Uses built-in text when childless; extra children are ignored |
 | `Spacer` | `UXmlSpacer` | none | Square desired size; the panel's main axis uses the relevant dimension |
 | `ProgressBar` | `UXmlProgressBar` | none | Left-to-right fill |
+| `WrapBox` | `UWrapBox` | many | Wrapping container; `WrapWidth` (float) sets the explicit wrap width; child slots use `Padding`/`HAlign`/`VAlign` |
+| `Grid` | `UUniformGridPanel` | many | Equal-width grid; `Columns` (int) is documentation/validation; child slots use `HAlign`/`VAlign` plus `Row` (int) / `Column` (int) |
 
-There is no `Canvas`, `Border`, `Input`, `Slider`, `ScrollBox`, `ListView`, `Grid`, or animation tag. An unknown child tag is skipped. An unknown root tag prevents a usable root from being built.
+There is no `Canvas`, `Border`, `Input`, `Slider`, `ScrollBox`, `ListView`, or animation tag. An unknown child tag is skipped. An unknown root tag prevents a usable root from being built.
+
+## Widget Class Mapping (WidgetClassMap)
+
+`XmlUISettings.WidgetClassMap` maps DSL tags to host widget class paths (for example `Text` → `/Script/SampleGame.SampleTextBlock`). A mapped class only needs to derive from the corresponding standard UMG widget (`UTextBlock`, `UImage`, `UButton`, `UProgressBar`, `USpacer`, `UWrapBox`, `UUniformGridPanel`, and so on); the builder then configures it with the standard APIs. Tags that are not configured use the default controls listed in this reference. Common attributes such as `ColorAndOpacity` apply only to the plugin's default wrapper widgets; when a tag is mapped to a host widget, use the tag-specific attribute (such as `Color`) instead.
+
+In `Config/DefaultXmlUI.ini` the map must be written as a single native map value (not per-line array syntax; per-line `Key=`/`Value=` pairs are rejected by `LoadConfig` for `TMap` properties):
+
+```ini
+[/Script/XmlUIEditor.XmlUISettings]
+WidgetClassMap=(("Text","/Script/SampleGame.SampleTextBlock"),("Image","/Script/SampleGame.SampleImage"))
+```
 
 ## Required Names
 
@@ -125,6 +138,8 @@ Slot attributes belong to a child node and are interpreted according to its pare
 | `XmlUI` / `Vertical` / `Horizontal` | yes | yes | yes | `Auto` or `Fill` |
 | `Overlay` | yes | yes | yes | ignored |
 | `SizeBox` / `Button` | ignored on child | ignored | ignored | ignored |
+| `WrapBox` | yes | yes | yes | — |
+| `Grid` | no — Grid slots have no padding (no SetPadding); use the container-level `SlotPadding` instead | yes | yes | — |
 
 `HAlign` accepts `Left`, `Center`, `Right`, and `Fill`. `VAlign` accepts `Top`, `Center`, `Bottom`, and `Fill`. Values are case-insensitive.
 
@@ -196,6 +211,8 @@ Record `#FF5A7AC0 -> intended T_Icon -> UXmlImage::SetXmlTexture` in the generat
 | Progress/health bar | `ProgressBar`, usually wrapped in `SizeBox` |
 | Auto Layout gap | `Spacer` or child slot `Padding` |
 | Repeated list/grid | Named host container plus one representative item; runtime population noted |
+| Wrapping/grouped container | `WrapBox`; repeated tag groups and variable-width items flow onto new lines |
+| Equal-width grid | `Grid`; icon matrices and N-column layouts, with children placed via `Row`/`Column` |
 | Free positioning | Local `Overlay` with alignment/padding, or restructure into rows/columns |
 
 Do not create nodes for page-level decorative fills, glows, watermarks, design annotations, or mock-only content unless they define the selected component's real surface or behavior.

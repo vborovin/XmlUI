@@ -107,6 +107,7 @@ UWidget* Root = UXmlBuilder::BuildFromString(this, XmlContent, Error);
 | 根/线性容器 | `XmlUI`, `Vertical`, `Horizontal` | 构建 `UXmlPanel`；`XmlUI` 与 `Vertical` 为垂直方向 |
 | 叠放容器 | `Overlay` | 构建 `UOverlay`，支持子槽对齐与边距 |
 | 单内容容器 | `SizeBox` | 固定或约束期望尺寸，仅使用第一个子节点 |
+| 换行/等宽容器 | `WrapBox`, `Grid` | 构建 `UWrapBox`（换行行容器）与 `UUniformGridPanel`（等宽网格） |
 | 元素 | `Text`, `Image`, `Button` | 文本、图像/色块、按钮 |
 | 辅助元素 | `Spacer`, `ProgressBar` | 间距与从左到右的进度条 |
 
@@ -164,6 +165,9 @@ BakedBlueprintOutputPath=/Game/UI
 | `BaseWidgetClass` | 烘焙 WBP 的默认父类 | `/Script/UMG.UserWidget` |
 | `XmlRootPath` | XML 文件选择器的初始目录 | 空，回退到工程根目录 |
 | `BakedBlueprintOutputPath` | Widget Blueprint 输出目录 | `/Game/UI` |
+| `WidgetClassMap` | 将 DSL 标签映射到宿主控件类路径 | 空 |
+
+宿主工程可通过 `XmlUISettings.WidgetClassMap` 将任意 DSL 标签映射到自研控件类（如 `Text` → `USampleTextBlock`）；插件本身保持项目无关。
 
 ### AI-Assisted Workflow
 

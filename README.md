@@ -107,6 +107,7 @@ UWidget* Root = UXmlBuilder::BuildFromString(this, XmlContent, Error);
 | Root/linear containers | `XmlUI`, `Vertical`, `Horizontal` | Build `UXmlPanel`; `XmlUI` and `Vertical` are vertical |
 | Stacking container | `Overlay` | Builds `UOverlay` with child alignment and padding |
 | Single-child container | `SizeBox` | Fixes or constrains desired size; only the first child is used |
+| Wrapping/equal-width containers | `WrapBox`, `Grid` | Build `UWrapBox` (wrapping row) and `UUniformGridPanel` (equal-width grid) |
 | Elements | `Text`, `Image`, `Button` | Text, image/color block, and button |
 | Helpers | `Spacer`, `ProgressBar` | Spacing and left-to-right progress |
 
@@ -164,6 +165,9 @@ BakedBlueprintOutputPath=/Game/UI
 | `BaseWidgetClass` | Default parent class for baked Widget Blueprints | `/Script/UMG.UserWidget` |
 | `XmlRootPath` | Initial directory for the XML file picker | Empty; falls back to the project root |
 | `BakedBlueprintOutputPath` | Output directory for Widget Blueprints | `/Game/UI` |
+| `WidgetClassMap` | Maps DSL tags to host widget class paths | Empty |
+
+A host project can map any DSL tag to its own widget class through `XmlUISettings.WidgetClassMap` (for example `Text` → `USampleTextBlock`); the plugin itself stays project-independent.
 
 ### AI-Assisted Workflow
 

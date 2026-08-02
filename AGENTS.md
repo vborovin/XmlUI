@@ -21,7 +21,7 @@ Declarative UMG plugin: an XML DSL is parsed into `FXmlNodeDesc`, then either ba
 ## Layout
 - `Source/XmlUI` — Runtime module; deps: Core, CoreUObject, Engine, UMG, Slate, SlateCore, InputCore, XmlParser. LoadingPhase Default.
 - `Source/XmlUIEditor` — Editor module; deps: XmlUI + UnrealEd, ToolMenus, UMGEditor, Kismet, AssetTools, DesktopPlatform, LevelEditor, DeveloperSettings. Baker lives in `Private/XmlUI/`.
-- `Config/DefaultXmlUI.ini` — `UXmlUISettings` (UDeveloperSettings, category `XmlUI`): `BaseWidgetClass`, `XmlRootPath`, `BakedBlueprintOutputPath` (default `/Game/UI`).
+- `Config/DefaultXmlUI.ini` — `UXmlUISettings` (UDeveloperSettings, category `XmlUI`): `BaseWidgetClass`, `XmlRootPath`, `BakedBlueprintOutputPath` (default `/Game/UI`), `WidgetClassMap`.
 - No `Content/` (`CanContainContent: false`), no tests, no plugin-local build scripts.
 
 ## Data flow
@@ -29,7 +29,7 @@ XML DSL → `UXmlDslParser::ParseXmlString` (wraps `FXmlFile`) → `FXmlNodeDesc
 → `UXmlBuilder::BuildNode` → runtime widget tree (preview), or
 → `FXmlUIBaker::BakeDslToWidgetBlueprint` → WBP asset (editor menu, ToolMenus).
 
-Tags handled: `XmlUI`/`Vertical`/`Horizontal`→`UXmlPanel`, `Overlay`→`UOverlay`, `SizeBox`→`USizeBox`, `Text`, `Image`, `Button` (max 1 child), `Spacer`, `ProgressBar`. Unknown tags are skipped with an error string.
+Tags handled: `XmlUI`/`Vertical`/`Horizontal`→`UXmlPanel`, `Overlay`→`UOverlay`, `SizeBox`→`USizeBox`, `Text`, `Image`, `Button` (max 1 child), `Spacer`, `ProgressBar`, `WrapBox`→`UWrapBox`, `Grid`→`UUniformGridPanel`. Unknown tags are skipped with an error string.
 
 ## Quirks — do not "fix" these
 - `FXmlNodeDesc::Children` is intentionally **not** a `UPROPERTY` (UHT cannot reflect recursive arrays).
@@ -39,6 +39,7 @@ Tags handled: `XmlUI`/`Vertical`/`Horizontal`→`UXmlPanel`, `Overlay`→`UOverl
 - Brush attributes use the Unicode arrow `→` as type/asset delimiter: `Texture2D→/Game/UI/Tex.Tex`.
 - `SXmlPanel` uses modern Slate registration: `SLATE_DECLARE_WIDGET_API` + `SLATE_ADD_PANELCHILDREN_DEFINITION`; generated headers via `UE_INLINE_GENERATED_CPP_BY_NAME`.
 - Code comments are English; `README.md` is English with `README_zh.md` mirroring it in Simplified Chinese.
+- Code comments are English and minimal: keep a comment only when it carries contract or warning information the code cannot express; never restate the code.
 
 ## Build & verify
 - No build scripts in the plugin — it compiles as part of whichever host project integrates it; there is no standalone build.

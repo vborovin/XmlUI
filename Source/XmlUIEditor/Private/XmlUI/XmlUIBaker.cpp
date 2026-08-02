@@ -181,7 +181,9 @@ UWidgetBlueprint* FXmlUIBaker::BakeDslToWidgetBlueprint(const FString& DslFilePa
         return nullptr;
     }
 
-    UClass* ParentClass = GetDefault<UXmlUISettings>()->BaseWidgetClass.LoadSynchronous();
+    const UXmlUISettings* Settings = GetDefault<UXmlUISettings>();
+
+    UClass* ParentClass = Settings->BaseWidgetClass.LoadSynchronous();
     if (!ParentClass)
     {
         ParentClass = UUserWidget::StaticClass();
@@ -202,7 +204,7 @@ UWidgetBlueprint* FXmlUIBaker::BakeDslToWidgetBlueprint(const FString& DslFilePa
         ParentClass, Pkg, FName(*AssetName), BPTYPE_Normal,
         UWidgetBlueprint::StaticClass(), UWidgetBlueprintGeneratedClass::StaticClass()));
 
-    UWidget* Root = UXmlBuilder::BuildNode(BP->WidgetTree, RootDesc, OutError);
+    UWidget* Root = UXmlBuilder::BuildNode(BP->WidgetTree, RootDesc, OutError, &Settings->WidgetClassMap);
     if (!Root)
     {
         BP->MarkAsGarbage();

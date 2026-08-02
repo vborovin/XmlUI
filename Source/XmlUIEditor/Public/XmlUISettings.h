@@ -22,4 +22,9 @@ public:
 
     UPROPERTY(config, EditAnywhere, Category = "XmlUI")
     FString BakedBlueprintOutputPath = TEXT("/Game/UI");
+
+    /** Optional: DSL tag -> widget class path mapping (e.g. "Text" -> "/Script/SampleGame.SampleTextBlock").
+        Passed to UXmlBuilder::BuildNode at bake time; tags without a mapping fall back to the plugin defaults. Project-agnostic: host adaptation is fully driven by this config. */
+    UPROPERTY(config, EditAnywhere, Category = "XmlUI")
+    TMap<FString, FString> WidgetClassMap;
 };
