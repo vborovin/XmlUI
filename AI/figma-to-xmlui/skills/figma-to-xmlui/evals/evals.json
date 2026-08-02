@@ -1,0 +1,47 @@
+{
+  "skill_name": "figma-to-xmlui",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Convert the selected GameShop Figma frame into XmlUI and a matching C++ contract for my host project. The owning module is AtlasGame, its export macro is ATLASGAME_API, existing widgets use U<RootName>Widget under Source/AtlasGame/Public/UI, and this project preserves design pixels 1:1. The frame contains a real shop panel with a title, a horizontal item-card host, price labels, and buy buttons. Outside that panel are a gradient wordmark, card glows, a dark vignette, and a 'coming soon' presentation banner. Keep only the actual shop UI.",
+      "expected_output": "A paired XmlUI_GameShop.xml and UGameShopWidget contract adapted to AtlasGame. The XML keeps the shop hierarchy and one representative item, omits decorative canvas art, places generation notes inside the XmlUI root, and uses only implemented tags. The class uses ATLASGAME_API and binds only runtime-accessed labels, buttons, and the dynamic host container.",
+      "files": [],
+      "expectations": [
+        "The XML document starts with a single XmlUI root, and its Generation notes comment is inside that root rather than before it.",
+        "The generated XML contains no nodes for the gradient wordmark, glow layers, vignette, or coming-soon banner, and the note lists those omissions.",
+        "The repeated item area is represented by a named host and one representative item rather than copied mock entries.",
+        "Every XML node has a unique PascalCase Name and uses only supported XmlUI tags.",
+        "ParentClass is /Script/AtlasGame.GameShopWidget, the class is UGameShopWidget with ATLASGAME_API, and BindWidget names match XML node names.",
+        "The C++ header follows the supplied host path/naming convention without adding an empty constructor or binding static decorative widgets."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I exported a 1280x720 profile-card mockup for a project whose UI target frame is 2560x1440 and which adopts XmlUI's built-in ArtFontSize mapping. The C++ module is PlayerUI, its macro is PLAYERUI_API, and existing view classes use U<RootName>View under Source/PlayerUI/Public/UI/Views. The design has a 128px avatar inside a #D4AF3780 gold frame, a 24px player name, a rank icon, a level bar filled to 75%, and UID text. A giant joined-letter watermark and two glow layers sit behind the card only as decoration. Generate the XML plus the C++ contract.",
+      "expected_output": "A uniformly 2x-scaled profile-card skeleton with a UProfileCardView contract adapted to PlayerUI. Structural dimensions and ArtFontSize values scale from 1280x720 to 2560x1440; the watermark and glows are omitted and documented. Runtime avatar, rank, name, level, and UID controls use correct XmlUI binding types.",
+      "files": [],
+      "expectations": [
+        "The generation note records the 1280x720 source, 2560x1440 target, and uniform 2x scale.",
+        "The avatar target is 256x256 and the player-name ArtFontSize is 48 after scaling.",
+        "The decorative watermark and glow layers are absent from the node tree and listed as omitted.",
+        "The level control is a ProgressBar with Percent 0.75 and is wrapped in a SizeBox if a fixed height is needed.",
+        "The Figma frame color #D4AF3780 is emitted as #80D4AF37, and every node has a legal unique Name.",
+        "ParentClass is /Script/PlayerUI.ProfileCardView, and the UProfileCardView class uses PLAYERUI_API and the supplied Views directory convention."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Build an XmlUI skeleton for a daily-reward dialog in the RewardSystem module. The module macro is REWARDSYSTEM_API, existing classes use U<RootName>Panel in Source/RewardSystem/Public/UI/Panels, and design pixels map 1:1. The design shows seven sample reward boxes in one row, but C++ will populate the real rewards dynamically. Include Claim and Close actions. The page behind the dialog has a dim presentation overlay and fake player avatars; the title uses beveled outlined lettering and the dialog has an 8px radius. Deliver the usual XML and C++ pair.",
+      "expected_output": "A dialog-only XML skeleton with a dynamic RewardsRow host, one representative reward item, Claim and Close buttons, and a UDailyRewardDialogPanel contract adapted to RewardSystem. Page decoration is omitted; unsupported bevel, outline, and radius values are documented.",
+      "files": [],
+      "expectations": [
+        "The XML emits one representative reward item instead of seven copied mock items.",
+        "A named Horizontal reward host is present, and the C++ contract binds it as UXmlPanel because runtime code will populate it.",
+        "BtnClaim and BtnClose exist as Button nodes and matching UXmlButton BindWidget properties.",
+        "The page dimmer and fake avatars are omitted, while the 8px radius and beveled/outlined title are listed as unsupported.",
+        "ParentClass is /Script/RewardSystem.DailyRewardDialogPanel, and UDailyRewardDialogPanel uses REWARDSYSTEM_API and the supplied Panels directory convention.",
+        "The output contains no unsupported Canvas, Grid, ListView, Border, or custom style tags."
+      ]
+    }
+  ]
+}

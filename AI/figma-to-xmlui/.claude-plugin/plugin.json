@@ -1,0 +1,6 @@
+{
+  "name": "figma-to-xmlui",
+  "version": "1.2.0",
+  "description": "Convert selected Figma UI into portable XmlUI DSL and project-adapted Unreal C++ BindWidget contracts",
+  "author": "XmlUI Plugin Team"
+}

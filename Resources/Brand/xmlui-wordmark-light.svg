@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="220" viewBox="0 0 900 220" role="img" aria-labelledby="title desc">
+  <title id="title">XmlUI</title>
+  <desc id="desc">XmlUI wordmark with an angular XML code emblem</desc>
+  <g fill="none" stroke-linecap="square" stroke-linejoin="miter">
+    <path d="M110 12 180 40 208 110 180 180 110 208 40 180 12 110 40 40Z" stroke="#11151B" stroke-width="8"/>
+    <path d="M110 30 167 53 190 110 167 167 110 190 53 167 30 110 53 53Z" stroke="#11151B" stroke-width="2" opacity="0.28"/>
+    <path d="m98 70-40 40 40 40M122 70l40 40-40 40" stroke="#11151B" stroke-width="10"/>
+    <path d="m132 54-44 112" stroke="#476C94" stroke-width="10"/>
+  </g>
+  <g font-family="Arial Black, Arial, Segoe UI, sans-serif">
+    <text x="258" y="132" fill="#11151B" font-size="92" font-weight="900" letter-spacing="7">XMLUI</text>
+    <text x="265" y="172" fill="#5F6875" font-size="22" font-weight="700" letter-spacing="7">DECLARATIVE UMG</text>
+  </g>
+  <path d="M260 195H826" stroke="#476C94" stroke-width="5"/>
+  <path d="M832 195H870" stroke="#11151B" stroke-width="5"/>
+</svg>

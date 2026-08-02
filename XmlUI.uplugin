@@ -1,0 +1,21 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "XmlUI",
+	"Description": "Cross-project declarative UMG construction with XML DSL parsing, runtime building, and editor baking",
+	"Category": "UserInterface",
+	"CreatedBy": "Dqz00116",
+	"CreatedByURL": "https://github.com/Dqz00116/XmlUI",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{ "Name": "XmlUI", "Type": "Runtime", "LoadingPhase": "Default" },
+		{ "Name": "XmlUIEditor", "Type": "Editor", "LoadingPhase": "Default" }
+	]
+}
