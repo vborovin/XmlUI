@@ -23,6 +23,7 @@
 #include "Components/OverlaySlot.h"
 #include "Components/PanelWidget.h"
 #include "Components/ProgressBar.h"
+#include "Components/ScaleBox.h"
 #include "Components/ScrollBox.h"
 #include "Components/ScrollBoxSlot.h"
 #include "Components/SizeBox.h"
@@ -247,6 +248,10 @@ namespace
         {
             OutTag = TEXT("SizeBox");
         }
+        else if (WidgetClass->IsChildOf(UScaleBox::StaticClass()))
+        {
+            OutTag = TEXT("ScaleBox");
+        }
         else if (WidgetClass->IsChildOf(UWrapBox::StaticClass()))
         {
             OutTag = TEXT("WrapBox");
@@ -450,6 +455,68 @@ namespace
         if (SizeBox->IsMaxDesiredHeightOverride()) AppendAttr(Out, TEXT("MaxDesiredHeight"), FString::SanitizeFloat(SizeBox->GetMaxDesiredHeight()));
     }
 
+    FString StretchToString(EStretch::Type InStretch)
+    {
+        switch (InStretch)
+        {
+        case EStretch::None: return TEXT("none");
+        case EStretch::Fill: return TEXT("fill");
+        case EStretch::ScaleToFit: return TEXT("scaletofit");
+        case EStretch::ScaleToFitX: return TEXT("scaletofitx");
+        case EStretch::ScaleToFitY: return TEXT("scaletofity");
+        case EStretch::ScaleToFill: return TEXT("scaletofill");
+        case EStretch::ScaleBySafeZone: return TEXT("scalebysafezone");
+        case EStretch::UserSpecified: return TEXT("userspecified");
+        case EStretch::UserSpecifiedWithClipping: return TEXT("userspecifiedwithclipping");
+        default: return FString::FromInt(static_cast<int32>(InStretch));
+        }
+    }
+
+    FString StretchDirectionToString(EStretchDirection::Type InDirection)
+    {
+        switch (InDirection)
+        {
+        case EStretchDirection::Both: return TEXT("both");
+        case EStretchDirection::DownOnly: return TEXT("downonly");
+        case EStretchDirection::UpOnly: return TEXT("uponly");
+        default: return FString::FromInt(static_cast<int32>(InDirection));
+        }
+    }
+
+    // Engine UScaleBox has no UserDesiredWidth/UserDesiredHeight/ContentScale properties; read them
+    // reflectively so host ScaleBox subclasses that carry them round-trip, and skip when absent.
+    void AppendReflectedScaleBoxAttr(TArray<FString>& Out, const UWidget* Widget, const TCHAR* PropertyName)
+    {
+        if (const FFloatProperty* FloatProp = FindFProperty<FFloatProperty>(Widget->GetClass(), PropertyName))
+        {
+            const float Value = FloatProp->GetPropertyValue_InContainer(Widget);
+            if (Value != 0.f) AppendAttr(Out, PropertyName, FString::SanitizeFloat(Value));
+        }
+        else if (const FStructProperty* StructProp = FindFProperty<FStructProperty>(Widget->GetClass(), PropertyName))
+        {
+            if (StructProp->Struct->GetFName() == TEXT("Vector2D"))
+            {
+                const FVector2D Value = *StructProp->ContainerPtrToValuePtr<FVector2D>(Widget);
+                if (Value != FVector2D::ZeroVector) AppendAttr(Out, PropertyName, Vector2DToString(Value));
+            }
+        }
+    }
+
+    void AppendScaleBoxAttrs(TArray<FString>& Out, const UWidget* Widget)
+    {
+        const UScaleBox* ScaleBox = Cast<UScaleBox>(Widget);
+        if (!ScaleBox)
+        {
+            return;
+        }
+        AppendReflectedScaleBoxAttr(Out, Widget, TEXT("UserDesiredWidth"));
+        AppendReflectedScaleBoxAttr(Out, Widget, TEXT("UserDesiredHeight"));
+        AppendReflectedScaleBoxAttr(Out, Widget, TEXT("ContentScale"));
+        const UScaleBox* Default = GetDefault<UScaleBox>(Widget->GetClass());
+        if (ScaleBox->GetStretch() != Default->GetStretch()) AppendAttr(Out, TEXT("Stretch"), StretchToString(ScaleBox->GetStretch()));
+        if (ScaleBox->GetStretchDirection() != Default->GetStretchDirection()) AppendAttr(Out, TEXT("StretchDirection"), StretchDirectionToString(ScaleBox->GetStretchDirection()));
+    }
+
     void AppendWrapBoxAttrs(TArray<FString>& Out, const UWidget* Widget)
     {
         const UWrapBox* WrapBox = Cast<UWrapBox>(Widget);
@@ -560,6 +627,10 @@ namespace
         else if (Tag == TEXT("SizeBox"))
         {
             AppendSizeBoxAttrs(Out, Widget);
+        }
+        else if (Tag == TEXT("ScaleBox"))
+        {
+            AppendScaleBoxAttrs(Out, Widget);
         }
         else if (Tag == TEXT("WrapBox"))
         {

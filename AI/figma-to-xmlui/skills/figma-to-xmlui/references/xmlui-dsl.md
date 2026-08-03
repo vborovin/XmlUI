@@ -17,6 +17,7 @@ Treat this file as the syntax source of truth. The parser and builder are permis
 | `Horizontal` | `UXmlPanel` | many | Horizontal row |
 | `Overlay` | `UOverlay` | many | Children occupy stacked slots |
 | `SizeBox` | `USizeBox` | one | Extra children are ignored with a diagnostic |
+| `ScaleBox` | `UScaleBox` | one | Scales the single child; extra children are ignored with a diagnostic |
 | `Text` | `UXmlTextBlock` | none | Slate text wrapper |
 | `Image` | `UXmlImage` | none | Solid brush, texture, or material |
 | `Button` | `UXmlButton` | zero or one | Uses built-in text when childless; extra children are ignored |
@@ -134,6 +135,18 @@ XmlUI does not expose background style, bar direction, marquee mode, or a size a
 
 Only the first child is used. Slot attributes on that child are not applied by the builder.
 
+### ScaleBox
+
+| Attribute | Type | Notes |
+|---|---|---|
+| `UserDesiredWidth` | float | Not present on engine `UScaleBox`; emitted only when a host `ScaleBox` subclass carries it |
+| `UserDesiredHeight` | float | Same as `UserDesiredWidth` |
+| `ContentScale` | vector | Same as `UserDesiredWidth` |
+| `Stretch` | enum | `None`, `Fill`, `ScaleToFit`, `ScaleToFitX`, `ScaleToFitY`, `ScaleToFill`, `ScaleBySafeZone`, `UserSpecified`, `UserSpecifiedWithClipping`; case-insensitive |
+| `StretchDirection` | enum | `Both`, `DownOnly`, `UpOnly`; case-insensitive |
+
+Only the first child is used. Slot attributes on that child are not applied by the builder.
+
 ### ScrollBox
 
 | Attribute | Type | Notes |
@@ -179,7 +192,7 @@ Slot attributes belong to a child node and are interpreted according to its pare
 |---|---:|---:|---:|---:|
 | `XmlUI` / `Vertical` / `Horizontal` | yes | yes | yes | `Auto` or `Fill` |
 | `Overlay` | yes | yes | yes | ignored |
-| `SizeBox` / `Button` | ignored on child | ignored | ignored | ignored |
+| `SizeBox` / `ScaleBox` / `Button` | ignored on child | ignored | ignored | ignored |
 | `WrapBox` | yes | yes | yes | — |
 | `Grid` | no — Grid slots have no padding (no SetPadding); use the container-level `SlotPadding` instead | yes | yes | — |
 | `ScrollBox` | yes | yes | yes | `Auto` or `Fill` |
@@ -309,7 +322,7 @@ Use a simple approximation only when it preserves useful structure, and state th
 - One `<XmlUI>` root; generation note inside it.
 - Supported, correctly cased tags and attributes only.
 - Every node named legally and uniquely.
-- One child maximum for `SizeBox`, `Button`, `MenuAnchor`, and `Border`.
+- One child maximum for `SizeBox`, `ScaleBox`, `Button`, `MenuAnchor`, and `Border`.
 - `#AARRGGBB`, valid vectors/margins, and XML-escaped text.
 - No root slot attributes relied upon.
 - No speculative object paths.

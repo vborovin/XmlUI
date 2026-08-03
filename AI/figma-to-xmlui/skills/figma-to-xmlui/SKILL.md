@@ -67,7 +67,7 @@ When intent is ambiguous, prefer the smallest useful structure and list the omis
 
 ### 5. Map to XmlUI
 
-- Use only `XmlUI`, `Vertical`, `Horizontal`, `Overlay`, `SizeBox`, `Text`, `Image`, `Button`, `Spacer`, `ProgressBar`, `WrapBox`, `Grid`, `ScrollBox`, `Canvas`, `MenuAnchor`, `Border`, and `UserWidget`.
+- Use only `XmlUI`, `Vertical`, `Horizontal`, `Overlay`, `SizeBox`, `ScaleBox`, `Text`, `Image`, `Button`, `Spacer`, `ProgressBar`, `WrapBox`, `Grid`, `ScrollBox`, `Canvas`, `MenuAnchor`, `Border`, and `UserWidget`.
 - The default mapping of layout containers (such as `Vertical` → `UVerticalBox`) is decided by the host's `WidgetClassMap` configuration; the Skill does not need to care about concrete classes when generating XML.
 - Prefer Figma Auto Layout hierarchy over absolute coordinates.
 - Use `Overlay` for genuine stacking or limited local positioning, not as a substitute for every layout.

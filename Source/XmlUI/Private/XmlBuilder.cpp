@@ -20,6 +20,7 @@
 #include "Components/Image.h"
 #include "Components/MenuAnchor.h"
 #include "Components/ProgressBar.h"
+#include "Components/ScaleBox.h"
 #include "Components/ScrollBox.h"
 #include "Components/ScrollBoxSlot.h"
 #include "Components/Spacer.h"
@@ -144,6 +145,35 @@ static UClass* ResolveUserWidgetClass(const FString& InPath)
         return Blueprint->GeneratedClass;
     }
     return nullptr;
+}
+
+// EStretch / EStretchDirection are UENUM namespace enums; match by name, case-insensitively
+// (the exporter emits the lowercased enum name).
+template<typename TEnum>
+static bool ParseScaleEnum(const FString& In, TEnum& OutValue)
+{
+    const UEnum* Enum = StaticEnum<TEnum>();
+    if (!Enum)
+    {
+        return false;
+    }
+    const FString Value = In.TrimStartAndEnd();
+    const int32 ExactIndex = Enum->GetIndexByNameString(Value);
+    if (ExactIndex != INDEX_NONE)
+    {
+        OutValue = static_cast<TEnum>(Enum->GetValueByIndex(ExactIndex));
+        return true;
+    }
+    const FString LowerValue = Value.ToLower();
+    for (int32 Index = 0; Index < Enum->NumEnums(); ++Index)
+    {
+        if (Enum->GetNameStringByIndex(Index).ToLower() == LowerValue)
+        {
+            OutValue = static_cast<TEnum>(Enum->GetValueByIndex(Index));
+            return true;
+        }
+    }
+    return false;
 }
 
 static void ApplyMappedText(FString& OutError, UWidget* InWidget, const FXmlNodeDesc& InNode)
@@ -938,6 +968,95 @@ UWidget* UXmlBuilder::BuildSizeBoxNode(UWidgetTree* Tree, const FXmlNodeDesc& No
     return Widget;
 }
 
+UWidget* UXmlBuilder::BuildScaleBoxNode(UWidgetTree* Tree, const FXmlNodeDesc& Node, FString& OutError, const TMap<FString, FString>* InWidgetClassMap)
+{
+    UWidget* Widget = nullptr;
+
+    bool bHasMapping = false;
+    UWidget* MappedWidget = TryCreateMappedWidget(Tree, Node, UScaleBox::StaticClass(), bHasMapping, OutError, InWidgetClassMap);
+    if (bHasMapping)
+    {
+        if (!MappedWidget)
+        {
+            return nullptr;
+        }
+        UScaleBox* ScaleBox = Cast<UScaleBox>(MappedWidget);
+        float Value = 0.f;
+        if (UXmlDslParser::ParseFloat(Node.Attributes.FindRef(TEXT("UserDesiredWidth")), Value))
+        {
+            if (FFloatProperty* WidthProp = FindFProperty<FFloatProperty>(ScaleBox->GetClass(), TEXT("UserDesiredWidth"))) { WidthProp->SetPropertyValue_InContainer(ScaleBox, Value); }
+        }
+        if (UXmlDslParser::ParseFloat(Node.Attributes.FindRef(TEXT("UserDesiredHeight")), Value))
+        {
+            if (FFloatProperty* HeightProp = FindFProperty<FFloatProperty>(ScaleBox->GetClass(), TEXT("UserDesiredHeight"))) { HeightProp->SetPropertyValue_InContainer(ScaleBox, Value); }
+        }
+        FVector2D ContentScale;
+        if (UXmlDslParser::ParseVector2D(Node.Attributes.FindRef(TEXT("ContentScale")), ContentScale))
+        {
+            if (FStructProperty* ScaleProp = FindFProperty<FStructProperty>(ScaleBox->GetClass(), TEXT("ContentScale")))
+            {
+                if (ScaleProp->Struct->GetFName() == TEXT("Vector2D")) { *ScaleProp->ContainerPtrToValuePtr<FVector2D>(ScaleBox) = ContentScale; }
+            }
+        }
+        EStretch::Type Stretch = EStretch::None;
+        if (ParseScaleEnum(Node.Attributes.FindRef(TEXT("Stretch")), Stretch)) { ScaleBox->SetStretch(Stretch); }
+        EStretchDirection::Type StretchDirection = EStretchDirection::Both;
+        if (ParseScaleEnum(Node.Attributes.FindRef(TEXT("StretchDirection")), StretchDirection)) { ScaleBox->SetStretchDirection(StretchDirection); }
+        if (Node.Children.Num() > 1)
+        {
+            OutError += FString::Printf(TEXT("XmlUI: ScaleBox '%s' has more than one child, ignoring the extras."), *Node.Name);
+        }
+        if (Node.Children.Num() >= 1)
+        {
+            UWidget* ChildWidget = BuildNodeInternal(Tree, Node.Children[0], OutError, InWidgetClassMap);
+            if (ChildWidget) { ScaleBox->AddChild(ChildWidget); }
+        }
+        Widget = ScaleBox;
+    }
+    else
+    {
+        UScaleBox* ScaleBox = Tree->ConstructWidget<UScaleBox>(UScaleBox::StaticClass(), FName(*Node.Name));
+        float Value = 0.f;
+        if (UXmlDslParser::ParseFloat(Node.Attributes.FindRef(TEXT("UserDesiredWidth")), Value))
+        {
+            if (FFloatProperty* WidthProp = FindFProperty<FFloatProperty>(ScaleBox->GetClass(), TEXT("UserDesiredWidth"))) { WidthProp->SetPropertyValue_InContainer(ScaleBox, Value); }
+        }
+        if (UXmlDslParser::ParseFloat(Node.Attributes.FindRef(TEXT("UserDesiredHeight")), Value))
+        {
+            if (FFloatProperty* HeightProp = FindFProperty<FFloatProperty>(ScaleBox->GetClass(), TEXT("UserDesiredHeight"))) { HeightProp->SetPropertyValue_InContainer(ScaleBox, Value); }
+        }
+        FVector2D ContentScale;
+        if (UXmlDslParser::ParseVector2D(Node.Attributes.FindRef(TEXT("ContentScale")), ContentScale))
+        {
+            if (FStructProperty* ScaleProp = FindFProperty<FStructProperty>(ScaleBox->GetClass(), TEXT("ContentScale")))
+            {
+                if (ScaleProp->Struct->GetFName() == TEXT("Vector2D")) { *ScaleProp->ContainerPtrToValuePtr<FVector2D>(ScaleBox) = ContentScale; }
+            }
+        }
+        EStretch::Type Stretch = EStretch::None;
+        if (ParseScaleEnum(Node.Attributes.FindRef(TEXT("Stretch")), Stretch)) { ScaleBox->SetStretch(Stretch); }
+        EStretchDirection::Type StretchDirection = EStretchDirection::Both;
+        if (ParseScaleEnum(Node.Attributes.FindRef(TEXT("StretchDirection")), StretchDirection)) { ScaleBox->SetStretchDirection(StretchDirection); }
+        if (Node.Children.Num() > 1)
+        {
+            OutError += FString::Printf(TEXT("XmlUI: ScaleBox '%s' has more than one child, ignoring the extras."), *Node.Name);
+        }
+        if (Node.Children.Num() >= 1)
+        {
+            UWidget* ChildWidget = BuildNodeInternal(Tree, Node.Children[0], OutError, InWidgetClassMap);
+            if (ChildWidget) { ScaleBox->AddChild(ChildWidget); }
+        }
+        Widget = ScaleBox;
+    }
+
+    if (Widget)
+    {
+        ApplyCommonAttributes(Widget, Node);
+    }
+
+    return Widget;
+}
+
 UWidget* UXmlBuilder::BuildCanvasNode(UWidgetTree* Tree, const FXmlNodeDesc& Node, FString& OutError, const TMap<FString, FString>* InWidgetClassMap)
 {
     UWidget* Widget = nullptr;
@@ -1099,6 +1218,7 @@ UWidget* UXmlBuilder::BuildNodeInternal(UWidgetTree* Tree, const FXmlNodeDesc& N
     else if (Node.Tag == TEXT("ScrollBox")) { return BuildScrollBoxNode(Tree, Node, OutError, InWidgetClassMap); }
     else if (Node.Tag == TEXT("UserWidget")) { return BuildUserWidgetNode(Tree, Node, OutError, InWidgetClassMap); }
     else if (Node.Tag == TEXT("SizeBox")) { return BuildSizeBoxNode(Tree, Node, OutError, InWidgetClassMap); }
+    else if (Node.Tag == TEXT("ScaleBox")) { return BuildScaleBoxNode(Tree, Node, OutError, InWidgetClassMap); }
     else if (Node.Tag == TEXT("Canvas")) { return BuildCanvasNode(Tree, Node, OutError, InWidgetClassMap); }
     else if (Node.Tag == TEXT("MenuAnchor")) { return BuildMenuAnchorNode(Tree, Node, OutError, InWidgetClassMap); }
     else if (Node.Tag == TEXT("Border")) { return BuildBorderNode(Tree, Node, OutError, InWidgetClassMap); }

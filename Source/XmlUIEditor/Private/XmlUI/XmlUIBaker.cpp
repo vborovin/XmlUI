@@ -221,9 +221,14 @@ UWidgetBlueprint* FXmlUIBaker::BakeDslToWidgetBlueprint(const FString& DslFilePa
     }
     BP->WidgetTree->RootWidget = Root;
 
+    // CreateBlueprint already compiled this BP once while its widget tree was still empty, so that
+    // pass only warned about every missing BindWidget. Compile the populated tree as the authoritative
+    // pass: a genuinely missing BindWidget now aborts the bake instead of silently saving a broken asset.
+    BP->bIsNewlyCreated = false;
     FKismetEditorUtilities::CompileBlueprint(BP);
     if (BP->Status == BS_Error)
     {
+        BP->MarkAsGarbage();
         UE_LOG(LogTemp, Error, TEXT("XmlUI: Blueprint compilation failed for %s (e.g. missing/incompatible BindWidget slots); asset was NOT saved"), *BP->GetName());
         return nullptr;
     }

@@ -61,6 +61,8 @@ private:
 
     static UWidget* BuildSizeBoxNode(UWidgetTree* Tree, const FXmlNodeDesc& Node, FString& OutError, const TMap<FString, FString>* InWidgetClassMap);
 
+    static UWidget* BuildScaleBoxNode(UWidgetTree* Tree, const FXmlNodeDesc& Node, FString& OutError, const TMap<FString, FString>* InWidgetClassMap);
+
     static UWidget* BuildCanvasNode(UWidgetTree* Tree, const FXmlNodeDesc& Node, FString& OutError, const TMap<FString, FString>* InWidgetClassMap);
 
     static UWidget* BuildMenuAnchorNode(UWidgetTree* Tree, const FXmlNodeDesc& Node, FString& OutError, const TMap<FString, FString>* InWidgetClassMap);

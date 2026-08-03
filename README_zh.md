@@ -122,7 +122,7 @@ XmlUI.BakeDsl File=<xml路径>
 |---|---|---|
 | 根/线性容器 | `XmlUI`, `Vertical`, `Horizontal` | 构建 `UXmlPanel`；`XmlUI` 与 `Vertical` 为垂直方向 |
 | 叠放容器 | `Overlay` | 构建 `UOverlay`，支持子槽对齐与边距 |
-| 单内容容器 | `SizeBox` | 固定或约束期望尺寸，仅使用第一个子节点 |
+| 单内容容器 | `SizeBox`, `ScaleBox` | 固定/约束期望尺寸或缩放内容，仅使用第一个子节点 |
 | 换行/等宽容器 | `WrapBox`, `Grid` | 构建 `UWrapBox`（换行行容器）与 `UUniformGridPanel`（等宽网格） |
 | 滚动容器 | `ScrollBox` | 构建 `UScrollBox`，`Orientation` 设置滚动方向 |
 | 绝对定位容器 | `Canvas` | 构建 `UCanvasPanel`；子槽使用 `Position`/`Size`/`Anchors`/`Alignment`/`ZOrder`/`AutoSize` |
@@ -242,6 +242,6 @@ XmlUI/
 - XML 生成说明应写在 `<XmlUI>` 根节点内部；根节点之前的注释可能导致 Unreal XML 解析失败。
 - 根节点没有父槽，因此根上的 `Padding`、`HAlign`、`VAlign`、`SizeParam` 均不生效。
 - 未知标签会被跳过，未知或格式错误的属性通常被忽略；因此烘焙成功并不代表布局完整。
-- `Button` 和 `SizeBox` 最多使用一个子节点，额外子节点会被忽略。
+- `Button`、`SizeBox` 和 `ScaleBox` 最多使用一个子节点，额外子节点会被忽略。
 
 </details>

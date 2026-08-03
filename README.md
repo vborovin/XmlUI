@@ -122,7 +122,7 @@ Baked Widget Blueprint assets carry the package metadata `XmlUI.SourceDsl`, `Xml
 |---|---|---|
 | Root/linear containers | `XmlUI`, `Vertical`, `Horizontal` | Build `UXmlPanel`; `XmlUI` and `Vertical` are vertical |
 | Stacking container | `Overlay` | Builds `UOverlay` with child alignment and padding |
-| Single-child container | `SizeBox` | Fixes or constrains desired size; only the first child is used |
+| Single-child container | `SizeBox`, `ScaleBox` | Fix/constrain desired size or scale content; only the first child is used |
 | Wrapping/equal-width containers | `WrapBox`, `Grid` | Build `UWrapBox` (wrapping row) and `UUniformGridPanel` (equal-width grid) |
 | Scrolling container | `ScrollBox` | Builds `UScrollBox`; `Orientation` sets the scroll direction |
 | Absolute-position container | `Canvas` | Builds `UCanvasPanel`; child slots use `Position`/`Size`/`Anchors`/`Alignment`/`ZOrder`/`AutoSize` |
@@ -242,6 +242,6 @@ XmlUI/
 - Keep XML generation notes inside the `<XmlUI>` root node; a comment before the root can break Unreal's XML parser.
 - The root has no parent slot, so root `Padding`, `HAlign`, `VAlign`, and `SizeParam` have no effect.
 - Unknown tags are skipped and unknown or malformed attributes are generally ignored, so a successful bake does not guarantee a complete layout.
-- `Button` and `SizeBox` use at most one child; extra children are ignored.
+- `Button`, `SizeBox`, and `ScaleBox` use at most one child; extra children are ignored.
 
 </details>

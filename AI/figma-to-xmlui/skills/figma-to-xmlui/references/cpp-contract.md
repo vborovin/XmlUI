@@ -36,6 +36,7 @@ Do not mechanically derive the API macro when an existing class can confirm it; 
 | `XmlUI` / `Vertical` / `Horizontal` | `UXmlPanel*` | `XmlPanel.h` |
 | `Overlay` | `UOverlay*` | `Components/Overlay.h` |
 | `SizeBox` | `USizeBox*` | `Components/SizeBox.h` |
+| `ScaleBox` | `UScaleBox*` | `Components/ScaleBox.h` |
 | `WrapBox` | `UWrapBox*` | `Components/WrapBox.h` |
 | `Grid` | `UUniformGridPanel*` | `Components/UniformGridPanel.h` |
 | `ScrollBox` | `UScrollBox*` | `Components/ScrollBox.h` |
