@@ -1,6 +1,6 @@
 ---
 name: figma-to-xmlui
-description: Convert selected Figma frames, component links, UI mockups, or screenshots into bakeable XmlUI XML for any Unreal Engine host project and, when the project has a C++ module, a matching BindWidget contract. Use for Figma-to-XmlUI, mockup-to-UMG, bakeable XML, or XmlUI widget-skeleton requests, including when the user provides only a design link or image. Preserve structural, informational, and interactive UI while omitting decorative canvas art.
+description: Convert selected Figma frames, component links, UI mockups, or screenshots into bakeable XmlUI XML for any Unreal Engine host project and, when the project has a C++ module, a matching BindWidget contract. Use for Figma-to-XmlUI, mockup-to-UMG, bakeable XML, or XmlUI widget-skeleton requests, including when the user provides only a design link or image. Preserve structural, informational, and interactive UI while omitting decorative canvas art. Also covers editing or round-tripping an existing Widget Blueprint: export it to XmlUI DSL, modify, and bake back.
 compatibility: Requires the XmlUI plugin in an Unreal Engine project. Link mode requires a connected Figma MCP server; screenshot mode requires image-capable input. A C++ contract is optional and requires a host C++ module.
 ---
 
@@ -115,7 +115,17 @@ Use this document shape; the generation note belongs inside the root because the
 
 Follow all type and include rules in [references/cpp-contract.md](references/cpp-contract.md).
 
-### 8. Validate and Report
+### 8. Update an Existing Widget Blueprint
+
+Bake (DSL→WBP) and Export (WBP→DSL) are inverse operations, so an existing Widget Blueprint can be updated incrementally:
+
+1. Export the existing WBP to DSL: `XmlUI.ExportWbp Wbp=<asset path> Out=<xml path>` (or the editor menu "XmlUI: Export WBP to DSL").
+2. Modify the XML as needed.
+3. Bake it back: `XmlUI.BakeDsl File=<xml path>` (or the editor menu).
+
+Important constraint: the baker does not overwrite an existing asset. Before writing back to the same asset name, delete or rename the old asset first, or choose a new output path. The exported content includes the asset's embedded `XmlUI.SourceDsl` metadata for cross-checking.
+
+### 9. Validate and Report
 
 Before finishing, verify:
 
@@ -128,6 +138,6 @@ Before finishing, verify:
 
 Compile the contract before baking when `ParentClass` references it, but follow project safety instructions and never run update, cleanup, or revert scripts as a build shortcut. The editor baker creates `WBP_<sanitized complete XML basename>` under `BakedBlueprintOutputPath`, replacing spaces, hyphens, and dots with underscores; for example, `XmlUI_ProfileCard.xml` becomes `WBP_XmlUI_ProfileCard`. It does not overwrite an existing asset.
 
-For headless round-trip or batch verification, `XmlUI.ExportWbp` exports an existing Widget Blueprint back to DSL for side-by-side comparison and `XmlUI.BakeDsl` runs the same bake from the console; baked assets also carry the `XmlUI.SourceDsl` package metadata for cross-checking.
+For headless round-trip editing or batch verification, `XmlUI.ExportWbp` exports an existing Widget Blueprint back to DSL for side-by-side comparison and `XmlUI.BakeDsl` runs the same bake from the console; baked assets also carry the `XmlUI.SourceDsl` package metadata for cross-checking.
 
 Finish with the XML path, optional C++ path, expected bake path, resolved host conventions, unresolved assets/styles, and verification not performed. Keep the summary concise because the files are the deliverable.
