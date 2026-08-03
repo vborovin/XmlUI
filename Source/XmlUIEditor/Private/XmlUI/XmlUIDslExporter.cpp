@@ -1,10 +1,12 @@
-﻿#include "XmlUIDslExporter.h"
+﻿/* Widget Blueprint -> XmlUI DSL serializer. Mirrors FXmlUIBaker's bake direction in reverse; WidgetClassMap reverse lookup is applied first. */
+
+#include "XmlUIDslExporter.h"
 
 #include "XmlUIBaker.h"
 #include "XmlUISettings.h"
-#include "XmlButton.h"
-#include "XmlPanel.h"
-#include "XmlWidget.h"
+#include "XmlWidgets/XmlButton.h"
+#include "XmlWidgets/XmlPanel.h"
+#include "XmlWidgets/XmlWidget.h"
 
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetTree.h"
@@ -62,6 +64,7 @@ namespace
         TArray<FString> Warnings;
     };
 
+    // --- value formatting ---
     FString EscapeXml(const FString& In)
     {
         FString Out = In;
@@ -182,6 +185,7 @@ namespace
         return FString::Printf(TEXT("%s\u2192%s"), *Type, *Resource->GetPathName());
     }
 
+    // --- tag resolution (ResolveTag) ---
     // Priority 1: WidgetClassMap reverse lookup with exact class match, then the default table.
     bool ResolveTag(const UWidget* InWidget, bool bIsRoot, const FExportContext& InCtx, FString& OutTag)
     {
@@ -294,6 +298,7 @@ namespace
         return true;
     }
 
+    // --- per-widget attribute export (Append*Attrs) ---
     void AppendTextAttrs(TArray<FString>& Out, const UWidget* Widget)
     {
         if (const UXmlTextBlock* XmlText = Cast<UXmlTextBlock>(Widget))
@@ -327,6 +332,20 @@ namespace
         }
     }
 
+    static void AppendImageColorAttr(TArray<FString>& Out, const FSlateBrush& Brush, const FLinearColor& FallbackColor)
+    {
+        const FLinearColor Tint = Brush.TintColor.GetSpecifiedColor();
+        if (Tint != FLinearColor::White)
+        {
+            AppendAttr(Out, TEXT("Color"), ColorToHex(Tint));
+        }
+        else if (FallbackColor != FLinearColor::White)
+        {
+            // Assets baked before the tint was mirrored into the brush keep the color here.
+            AppendAttr(Out, TEXT("Color"), ColorToHex(FallbackColor));
+        }
+    }
+
     void AppendImageAttrs(TArray<FString>& Out, const UWidget* Widget)
     {
         if (const UXmlImage* XmlImage = Cast<UXmlImage>(Widget))
@@ -337,16 +356,7 @@ namespace
             }
             else
             {
-                const FLinearColor TintColor = XmlImage->Brush.TintColor.GetSpecifiedColor();
-                if (TintColor != FLinearColor::White)
-                {
-                    AppendAttr(Out, TEXT("Color"), ColorToHex(TintColor));
-                }
-                else if (XmlImage->Color != FLinearColor::White)
-                {
-                    // Assets baked before the tint was mirrored into the brush keep the color here.
-                    AppendAttr(Out, TEXT("Color"), ColorToHex(XmlImage->Color));
-                }
+                AppendImageColorAttr(Out, XmlImage->Brush, XmlImage->Color);
             }
             const UXmlImage* Default = GetDefault<UXmlImage>(Widget->GetClass());
             if (XmlImage->DesiredSize != Default->DesiredSize) AppendAttr(Out, TEXT("DesiredSize"), Vector2DToString(XmlImage->DesiredSize));
@@ -370,20 +380,7 @@ namespace
             }
             else
             {
-                const FLinearColor TintColor = Brush.TintColor.GetSpecifiedColor();
-                if (TintColor != FLinearColor::White)
-                {
-                    AppendAttr(Out, TEXT("Color"), ColorToHex(TintColor));
-                }
-                else
-                {
-                    const FLinearColor ColorAndOpacity = EngineImage->GetColorAndOpacity();
-                    if (ColorAndOpacity != FLinearColor::White)
-                    {
-                        // Assets baked before the tint was mirrored into the brush keep the color here.
-                        AppendAttr(Out, TEXT("Color"), ColorToHex(ColorAndOpacity));
-                    }
-                }
+                AppendImageColorAttr(Out, Brush, EngineImage->GetColorAndOpacity());
             }
             // DesiredSizeOverride is applied to the Slate widget at runtime and is not serialized, so it cannot be read back.
         }
@@ -477,6 +474,12 @@ namespace
         if (Grid->GetSlotPadding() != Default->GetSlotPadding()) AppendAttr(Out, TEXT("SlotPadding"), MarginToString(Grid->GetSlotPadding()));
     }
 
+    static FString ClassPathToAssetPath(const FString& ClassPath)
+    {
+        // Blueprint generated class: strip the "_C" suffix to recover the asset path.
+        return ClassPath.EndsWith(TEXT("_C")) ? ClassPath.LeftChop(2) : ClassPath;
+    }
+
     void AppendUserWidgetAttrs(TArray<FString>& Out, const UWidget* Widget)
     {
         const UUserWidget* UserWidget = Cast<UUserWidget>(Widget);
@@ -490,13 +493,7 @@ namespace
         {
             return;
         }
-        FString ClassPath = WidgetClass->GetPathName();
-        if (ClassPath.EndsWith(TEXT("_C")))
-        {
-            // Blueprint generated class: strip the "_C" suffix to recover the asset path.
-            ClassPath.LeftChopInline(2);
-        }
-        AppendAttr(Out, TEXT("WBP"), ClassPath);
+        AppendAttr(Out, TEXT("WBP"), ClassPathToAssetPath(WidgetClass->GetPathName()));
     }
 
     void AppendMenuAnchorAttrs(TArray<FString>& Out, const UWidget* Widget)
@@ -508,13 +505,7 @@ namespace
         }
         if (Anchor->MenuClass)
         {
-            FString ClassPath = Anchor->MenuClass->GetPathName();
-            if (ClassPath.EndsWith(TEXT("_C")))
-            {
-                // Blueprint generated class: strip the "_C" suffix to recover the asset path.
-                ClassPath.LeftChopInline(2);
-            }
-            AppendAttr(Out, TEXT("Menu"), ClassPath);
+            AppendAttr(Out, TEXT("Menu"), ClassPathToAssetPath(Anchor->MenuClass->GetPathName()));
         }
     }
 
@@ -596,6 +587,7 @@ namespace
         }
     }
 
+    // --- slot attribute export (AppendSlotAttrs) ---
     void AppendSlotAttrs(TArray<FString>& Out, const UWidget* Child)
     {
         const UPanelSlot* RawSlot = Child->Slot;
@@ -687,6 +679,7 @@ namespace
         }
     }
 
+    // --- serializer (ExportNode) ---
     FString ExportNode(const UWidget* InWidget, bool bIsRoot, FExportContext& InCtx, const FString& InIndent)
     {
         FString Tag;
@@ -695,6 +688,11 @@ namespace
             InCtx.Warnings.Add(FString::Printf(TEXT("XmlUI: unsupported widget class '%s' ('%s'), node skipped"),
                 *InWidget->GetClass()->GetName(), *InWidget->GetName()));
             return FString();
+        }
+        // XmlUI is the root alias of Vertical: a vertical root is exported as XmlUI (Horizontal is unchanged).
+        if (bIsRoot && Tag == TEXT("Vertical"))
+        {
+            Tag = TEXT("XmlUI");
         }
 
         TArray<FString> Attrs;
@@ -795,6 +793,7 @@ namespace
     }
 }
 
+// --- dialog / console entry points ---
 void FXmlUIDslExporter::RunExportFromDialog()
 {
     IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
@@ -865,10 +864,25 @@ bool FXmlUIDslExporter::ExportWbpToDslFile(const FString& WbpAssetPath, const FS
     FExportContext Ctx;
     Ctx.BP = BP;
     Ctx.Settings = GetDefault<UXmlUISettings>();
+    TMap<UClass*, FString> ClassToFirstTag;
     for (const TPair<FString, FString>& Pair : Ctx.Settings->WidgetClassMap)
     {
+        if (Pair.Key == TEXT("XmlUI"))
+        {
+            // XmlUI is the root alias of Vertical and does not participate in reverse lookup.
+            continue;
+        }
         if (UClass* MappedClass = LoadClass<UWidget>(nullptr, *Pair.Value))
         {
+            if (const FString* ExistingTag = ClassToFirstTag.Find(MappedClass))
+            {
+                UE_LOG(LogTemp, Warning, TEXT("XmlUI: WidgetClassMap maps class %s to multiple tags (%s, %s); exports use the lexicographically smaller one"),
+                    *MappedClass->GetName(), **ExistingTag, *Pair.Key);
+            }
+            else
+            {
+                ClassToFirstTag.Emplace(MappedClass, Pair.Key);
+            }
             Ctx.ClassToTag.Emplace(MappedClass, Pair.Key);
         }
     }

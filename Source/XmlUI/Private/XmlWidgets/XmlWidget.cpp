@@ -1,4 +1,4 @@
-#include "XmlWidget.h"
+#include "XmlWidgets/XmlWidget.h"
 
 #include "Engine/Font.h"
 #include "Engine/Texture2D.h"

@@ -1,4 +1,4 @@
-#include "XmlPanel.h"
+#include "XmlWidgets/XmlPanel.h"
 
 #include "Components/Widget.h"
 #include "Layout/ArrangedChildren.h"
