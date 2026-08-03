@@ -38,6 +38,11 @@ Do not mechanically derive the API macro when an existing class can confirm it; 
 | `SizeBox` | `USizeBox*` | `Components/SizeBox.h` |
 | `WrapBox` | `UWrapBox*` | `Components/WrapBox.h` |
 | `Grid` | `UUniformGridPanel*` | `Components/UniformGridPanel.h` |
+| `ScrollBox` | `UScrollBox*` | `Components/ScrollBox.h` |
+| `Canvas` | `UCanvasPanel*` | `Components/CanvasPanel.h` |
+| `MenuAnchor` | `UMenuAnchor*` | `Components/MenuAnchor.h` |
+| `Border` | `UBorder*` | `Components/Border.h` |
+| `UserWidget` | `UUserWidget*` | `Blueprint/UserWidget.h` |
 
 A host can override the binding type of any tag through `XmlUISettings.WidgetClassMap` (for example `Text` → `USampleTextBlock*`, `Vertical` → `UVerticalBox*`); prefer the configuration when generating the contract, and use the default map above only for tags that are not configured.
 

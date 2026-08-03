@@ -4,6 +4,7 @@
 #include "DesktopPlatformModule.h"
 #include "XmlBuilder.h"
 #include "XmlDslParser.h"
+#include "XmlUI/XmlUIDslExporter.h"
 #include "XmlUISettings.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "WidgetBlueprint.h"
@@ -15,6 +16,8 @@
 #include "Misc/FileHelper.h"
 #include "Misc/MessageDialog.h"
 #include "Misc/Paths.h"
+#include "Misc/SecureHash.h"
+#include "UObject/MetaData.h"
 
 #define LOCTEXT_NAMESPACE "XmlUIBaker"
 
@@ -99,6 +102,12 @@ void FXmlUIBaker::RegisterMenus()
                 LOCTEXT("BakeXmlUITooltip", "Select a DSL (xml) file and statically generate a Widget Blueprint asset"),
                 FSlateIcon(),
                 FToolUIActionChoice(FExecuteAction::CreateLambda([]() { FXmlUIBaker::RunBakeFromDialog(); })));
+            SubSection.AddMenuEntry(
+                "ExportWbp",
+                LOCTEXT("ExportWbp", "XmlUI: Export WBP to DSL"),
+                LOCTEXT("ExportWbpTooltip", "Select a Widget Blueprint asset and export it as an XmlUI DSL (xml) file"),
+                FSlateIcon(),
+                FToolUIActionChoice(FExecuteAction::CreateLambda([]() { FXmlUIDslExporter::RunExportFromDialog(); })));
         }));
 }
 
@@ -213,6 +222,17 @@ UWidgetBlueprint* FXmlUIBaker::BakeDslToWidgetBlueprint(const FString& DslFilePa
     BP->WidgetTree->RootWidget = Root;
 
     FKismetEditorUtilities::CompileBlueprint(BP);
+    if (BP->Status == BS_Error)
+    {
+        UE_LOG(LogTemp, Error, TEXT("XmlUI: Blueprint compilation failed for %s (e.g. missing/incompatible BindWidget slots); asset was NOT saved"), *BP->GetName());
+        return nullptr;
+    }
+
+    // Persist the raw DSL source and a hash of it onto the asset via package metadata
+    UMetaData* DslMetaData = BP->GetPackage()->GetMetaData();
+    DslMetaData->SetValue(BP, TEXT("XmlUI.SourceDsl"), *XmlContent);
+    DslMetaData->SetValue(BP, TEXT("XmlUI.SourceHash"), *FMD5::HashAnsiString(*XmlContent));
+    DslMetaData->SetValue(BP, TEXT("XmlUI.BakeVersion"), TEXT("1"));
 
     BP->MarkPackageDirty();
     const TArray<UPackage*> Packages{ Pkg };

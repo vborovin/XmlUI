@@ -24,8 +24,13 @@ Treat this file as the syntax source of truth. The parser and builder are permis
 | `ProgressBar` | `UXmlProgressBar` | none | Left-to-right fill |
 | `WrapBox` | `UWrapBox` | many | Wrapping container; `WrapWidth` (float) sets the explicit wrap width; child slots use `Padding`/`HAlign`/`VAlign` |
 | `Grid` | `UUniformGridPanel` | many | Equal-width grid; `Columns` (int) is documentation/validation; child slots use `HAlign`/`VAlign` plus `Row` (int) / `Column` (int) |
+| `ScrollBox` | `UScrollBox` | many | Scrollable container; `Orientation` (`vertical`/`horizontal`) sets the scroll direction; child slots use `Padding`/`HAlign`/`VAlign`/`SizeParam` |
+| `Canvas` | `UCanvasPanel` | many | Absolute-positioning container; child slots use `Position`/`Size`/`Anchors`/`Alignment`/`ZOrder`/`AutoSize` |
+| `MenuAnchor` | `UMenuAnchor` | zero or one | Popup anchor; `Menu` (class path or asset path) selects the popup widget class; extra children are ignored |
+| `Border` | `UBorder` | zero or one | Single-child background; `BrushColor` (color) and `Padding` (margin); extra children are ignored |
+| `UserWidget` | `UUserWidget` | none | Nested Widget Blueprint reference; `WBP` (class path or asset path) selects the referenced widget class; children are ignored with a diagnostic |
 
-There is no `Canvas`, `Border`, `Input`, `Slider`, `ScrollBox`, `ListView`, or animation tag. An unknown child tag is skipped. An unknown root tag prevents a usable root from being built.
+There is no `Input`, `Slider`, `ListView`, or animation tag. An unknown child tag is skipped. An unknown root tag prevents a usable root from being built.
 
 ## Widget Class Mapping (WidgetClassMap)
 
@@ -129,6 +134,43 @@ XmlUI does not expose background style, bar direction, marquee mode, or a size a
 
 Only the first child is used. Slot attributes on that child are not applied by the builder.
 
+### ScrollBox
+
+| Attribute | Type | Notes |
+|---|---|---|
+| `Orientation` | `vertical` or `horizontal` | Optional; defaults to vertical |
+
+A scrollable container with any number of children. Children use the `Padding`/`HAlign`/`VAlign`/`SizeParam` slot attributes.
+
+### Canvas
+
+An absolute-positioning container with no widget-level attributes; all layout comes from the child slot attributes documented in [Canvas Slot Attributes](#canvas-slot-attributes).
+
+### MenuAnchor
+
+| Attribute | Type | Notes |
+|---|---|---|
+| `Menu` | class path or asset path | Optional. Resolved exactly like `UserWidget`'s `WBP` (see below); when omitted the anchor has no popup class |
+
+A single-child container; extra children are ignored. The child's slot has no settable attributes, so slot attributes on the child are ignored.
+
+### Border
+
+| Attribute | Type | Notes |
+|---|---|---|
+| `BrushColor` | color | Background tint of the border brush |
+| `Padding` | margin | Padding between the border edge and the single child |
+
+A single-child container; extra children are ignored. The child's slot supports `Padding`/`HAlign`/`VAlign`. As with `Button`, when a `Border` is itself a child of a linear or overlay panel, its `Padding` attribute is also read as parent-slot padding.
+
+### UserWidget
+
+| Attribute | Type | Notes |
+|---|---|---|
+| `WBP` | class path or asset path | Optional. A `/Script/<Module>.<Class>` or `_C`-suffixed path is loaded as a class directly; any other path is loaded as a Widget Blueprint asset and its generated class is used. Omit to construct a plain user widget placeholder |
+
+A nested Widget Blueprint reference with no children; extra children are ignored with a diagnostic.
+
 ## Slot Attributes
 
 Slot attributes belong to a child node and are interpreted according to its parent.
@@ -140,10 +182,28 @@ Slot attributes belong to a child node and are interpreted according to its pare
 | `SizeBox` / `Button` | ignored on child | ignored | ignored | ignored |
 | `WrapBox` | yes | yes | yes | — |
 | `Grid` | no — Grid slots have no padding (no SetPadding); use the container-level `SlotPadding` instead | yes | yes | — |
+| `ScrollBox` | yes | yes | yes | `Auto` or `Fill` |
+| `MenuAnchor` | ignored | ignored | ignored | ignored |
+| `Border` | yes | yes | yes | ignored |
 
 `HAlign` accepts `Left`, `Center`, `Right`, and `Fill`. `VAlign` accepts `Top`, `Center`, `Bottom`, and `Fill`. Values are case-insensitive.
 
 The root has no parent slot, so `Padding`, `HAlign`, `VAlign`, and `SizeParam` on `<XmlUI>` have no effect. Wrap content in a child and apply slot spacing to that child.
+
+### Canvas Slot Attributes
+
+Canvas children use the following slot attributes instead of the table above.
+
+| Attribute | Type | Notes |
+|---|---|---|
+| `Position` | vector | `X,Y` position of the child in canvas coordinates |
+| `Size` | vector | `X,Y` allocated size |
+| `Anchors` | vector | `X,Y` (uniform) or `X0,Y0,X1,Y1` (minimum, maximum); see below |
+| `Alignment` | vector | `X,Y` pivot, each in `0..1` |
+| `ZOrder` | integer | Render order; higher values draw on top |
+| `AutoSize` | `true` or `false` | Use the child's desired size when `true` |
+
+`Anchors` with two values sets both the minimum and maximum to the same point (`X,Y`). With four values the first pair is the minimum and the second pair is the maximum (`X0,Y0,X1,Y1`), so `0,0,1,1` stretches the child across the canvas.
 
 ## Value Formats
 
@@ -177,7 +237,7 @@ Parentheses are optional. Three-value margins are invalid.
 
 ### Vectors
 
-`DesiredSize` and `ShadowOffset` require exactly `X,Y`.
+`DesiredSize`, `ShadowOffset`, `Position`, `Size`, and `Alignment` require exactly `X,Y`. `Anchors` accepts `X,Y` (uniform) or `X0,Y0,X1,Y1` (minimum, maximum).
 
 ### Brush Values
 
@@ -213,7 +273,7 @@ Record `#FF5A7AC0 -> intended T_Icon -> UXmlImage::SetXmlTexture` in the generat
 | Repeated list/grid | Named host container plus one representative item; runtime population noted |
 | Wrapping/grouped container | `WrapBox`; repeated tag groups and variable-width items flow onto new lines |
 | Equal-width grid | `Grid`; icon matrices and N-column layouts, with children placed via `Row`/`Column` |
-| Free positioning | Local `Overlay` with alignment/padding, or restructure into rows/columns |
+| Free positioning | `Canvas` with `Position`/`Size`/`Anchors` child slots; or local `Overlay` with alignment/padding when only a few layers need alignment |
 
 Do not create nodes for page-level decorative fills, glows, watermarks, design annotations, or mock-only content unless they define the selected component's real surface or behavior.
 
@@ -249,7 +309,7 @@ Use a simple approximation only when it preserves useful structure, and state th
 - One `<XmlUI>` root; generation note inside it.
 - Supported, correctly cased tags and attributes only.
 - Every node named legally and uniquely.
-- One child maximum for `SizeBox` and `Button`.
+- One child maximum for `SizeBox`, `Button`, `MenuAnchor`, and `Border`.
 - `#AARRGGBB`, valid vectors/margins, and XML-escaped text.
 - No root slot attributes relied upon.
 - No speculative object paths.

@@ -122,7 +122,7 @@ It may also add a `.cpp` when the requested contract includes runtime methods or
 ## Verify
 
 1. Compile the C++ contract before baking whenever the XML sets `ParentClass`. Follow the project's approved editor-build command; do not use update, cleanup, or revert scripts as a build shortcut.
-2. In Unreal Editor, choose **XmlUI > XmlUI: Bake DSL to Widget Blueprint** and select the XML file.
+2. In Unreal Editor, choose **XmlUI > XmlUI: Bake DSL to Widget Blueprint** and select the XML file. To round-trip a baked asset, choose **XmlUI > XmlUI: Export WBP to DSL** on the `.uasset`, or run the `XmlUI.ExportWbp` console command.
 3. Derive the asset name from the sanitized complete XML basename; spaces, hyphens, and dots become underscores. For example, `XmlUI_ProfileCard.xml` bakes to `/Game/UI/WBP_XmlUI_ProfileCard` with the default settings.
 4. Delete or rename an existing asset at that path before rebaking; the baker does not overwrite assets.
 5. Open the generated Widget Blueprint and check for missing or type-mismatched `BindWidget` members.
@@ -130,7 +130,7 @@ It may also add a `.cpp` when the requested contract includes runtime methods or
 
 ## Important Limits
 
-- XmlUI has no `Canvas`, `Border`, input, slider, list-view, gradient, rounded-corner, stroke, blur, or animation tag.
+- XmlUI has no input, slider, list-view, gradient, rounded-corner, stroke, blur, or animation tag.
 - XML generation notes must be inside the `<XmlUI>` root; a leading comment can make the Unreal parser reject the file.
 - Root slot attributes such as `Padding`, `HAlign`, `VAlign`, and `SizeParam` have no effect because the root has no parent slot.
 - Unknown tags are skipped and unknown or malformed attributes are generally ignored, so a successful bake is not sufficient validation.

@@ -29,7 +29,9 @@ XML DSL → `UXmlDslParser::ParseXmlString` (wraps `FXmlFile`) → `FXmlNodeDesc
 → `UXmlBuilder::BuildNode` → runtime widget tree (preview), or
 → `FXmlUIBaker::BakeDslToWidgetBlueprint` → WBP asset (editor menu, ToolMenus).
 
-Tags handled: `XmlUI`/`Vertical`/`Horizontal`→`UXmlPanel`, `Overlay`→`UOverlay`, `SizeBox`→`USizeBox`, `Text`, `Image`, `Button` (max 1 child), `Spacer`, `ProgressBar`, `WrapBox`→`UWrapBox`, `Grid`→`UUniformGridPanel`. Unknown tags are skipped with an error string.
+WBP asset → `FXmlUIDslExporter` → DSL (editor menu or the `XmlUI.ExportWbp` console command); baked assets carry the package metadata `XmlUI.SourceDsl`/`XmlUI.SourceHash`/`XmlUI.BakeVersion` — the original DSL text plus its MD5 — as a baseline for future incremental updates.
+
+Tags handled: `XmlUI`/`Vertical`/`Horizontal`→`UXmlPanel`, `Overlay`→`UOverlay`, `SizeBox`→`USizeBox`, `Text`, `Image`, `Button` (max 1 child), `Spacer`, `ProgressBar`, `WrapBox`→`UWrapBox`, `Grid`→`UUniformGridPanel`, `ScrollBox`→`UScrollBox`, `Canvas`→`UCanvasPanel`, `MenuAnchor`→`UMenuAnchor`, `Border`→`UBorder`, `UserWidget` (nested WBP reference). Unknown tags are skipped with an error string.
 
 ## Quirks — do not "fix" these
 - `FXmlNodeDesc::Children` is intentionally **not** a `UPROPERTY` (UHT cannot reflect recursive arrays).

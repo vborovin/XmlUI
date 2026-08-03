@@ -23,11 +23,12 @@
 
 ### Overview
 
-XmlUI is a cross-project declarative UI plugin: define your UI in one XML DSL, bake it into a Widget Blueprint asset with a single menu command in the editor, and get the matching C++ code structure (`ParentClass` + `BindWidget`). UI and code share one source — no manual widget layout or event wiring.
+XmlUI is a cross-project declarative UI plugin: define your UI in one XML DSL, bake it into a Widget Blueprint asset with a single menu command in the editor, and get the matching C++ code structure (`ParentClass` + `BindWidget`). The conversion is bidirectional: bake turns the DSL into a Widget Blueprint asset, export turns it back into DSL, and every baked asset embeds the source DSL (`XmlUI.SourceDsl`) for verification and incremental updates. UI and code share one source — no manual widget layout or event wiring.
 
 ```mermaid
 flowchart LR
-    XML["One XML DSL"] --> WBP["Widget Blueprint asset"]
+    XML["One XML DSL"] -->|bake| WBP["Widget Blueprint asset"]
+    WBP -->|export| XML
     XML --> CPP["Matching C++ code structure<br/>ParentClass + BindWidget"]
 ```
 
@@ -98,6 +99,21 @@ FString Error;
 UWidget* Root = UXmlBuilder::BuildFromString(this, XmlContent, Error);
 ```
 
+**5. Export a Widget Blueprint back to DSL**
+
+Baked assets round-trip: Level Editor main menu → **XmlUI** → **XmlUI: Export WBP to DSL** exports a selected `.uasset` back to `.xml`.
+
+The same operations run headless via console commands:
+
+```text
+XmlUI.ExportWbp Wbp=<asset path> Out=<output xml path>
+XmlUI.BakeDsl File=<xml path>
+```
+
+`XmlUI.BakeDsl` is equivalent to the bake menu; `XmlUI.ExportWbp` writes the DSL back out.
+
+Baked Widget Blueprint assets carry the package metadata `XmlUI.SourceDsl`, `XmlUI.SourceHash`, and `XmlUI.BakeVersion` — the original DSL text plus its MD5 — as a baseline for future incremental updates.
+
 ### DSL Reference
 
 **Tags**
@@ -108,6 +124,11 @@ UWidget* Root = UXmlBuilder::BuildFromString(this, XmlContent, Error);
 | Stacking container | `Overlay` | Builds `UOverlay` with child alignment and padding |
 | Single-child container | `SizeBox` | Fixes or constrains desired size; only the first child is used |
 | Wrapping/equal-width containers | `WrapBox`, `Grid` | Build `UWrapBox` (wrapping row) and `UUniformGridPanel` (equal-width grid) |
+| Scrolling container | `ScrollBox` | Builds `UScrollBox`; `Orientation` sets the scroll direction |
+| Absolute-position container | `Canvas` | Builds `UCanvasPanel`; child slots use `Position`/`Size`/`Anchors`/`Alignment`/`ZOrder`/`AutoSize` |
+| Popup menu anchor | `MenuAnchor` | Builds `UMenuAnchor`; `Menu` references the popup Widget Blueprint; at most one child |
+| Background border | `Border` | Builds `UBorder` with `BrushColor`/`Padding`; at most one child |
+| Nested widget reference | `UserWidget` | References another Widget Blueprint via `WBP` |
 | Elements | `Text`, `Image`, `Button` | Text, image/color block, and button |
 | Helpers | `Spacer`, `ProgressBar` | Spacing and left-to-right progress |
 
@@ -120,11 +141,14 @@ UWidget* Root = UXmlBuilder::BuildFromString(this, XmlContent, Error);
 | Image | `Brush`, `Color`, `DesiredSize` |
 | Button | `Text`, `ButtonColor`, `TextColor`, `Padding` |
 | Progress | `Percent`, `FillColor` |
+| Scroll box | `Orientation` |
+| Nested widget | `WBP` |
 | Linear slots | `Padding`, `HAlign`, `VAlign`, `SizeParam` |
 
 - Colors accept `#RRGGBB`, `#AARRGGBB`, and `(R,G,B,A)`; when alpha is involved, prefer `#AARRGGBB`.
 - Resource brushes require an actual object path, e.g. `Texture2D→/Game/UI/T_Icon.T_Icon`. Until the asset is imported, use a solid-color placeholder.
 - `ArtFontSize` uses the plugin's built-in Figma-size lookup; projects that do not adopt this mapping should convert sizes themselves and use `FontSize` instead.
+- `Canvas`, `MenuAnchor`, and `Border` attributes are listed in the tag behavior above; the DSL Reference documents the full set.
 
 See the [XmlUI DSL Reference](./AI/figma-to-xmlui/skills/figma-to-xmlui/references/xmlui-dsl.md) for the full behavior and edge cases.
 
@@ -213,7 +237,7 @@ XmlUI/
 <details>
 <summary>Known limitations and baking notes</summary>
 
-- There are currently no tags for `Canvas`, `Border`, input fields, sliders, list views, gradients, rounded corners, blur, or animations.
+- There are currently no tags for input fields, sliders, list views, gradients, rounded corners, blur, or animations.
 - Every baked node must have a non-empty, legal, globally unique `Name`.
 - Keep XML generation notes inside the `<XmlUI>` root node; a comment before the root can break Unreal's XML parser.
 - The root has no parent slot, so root `Padding`, `HAlign`, `VAlign`, and `SizeParam` have no effect.

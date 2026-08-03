@@ -67,7 +67,7 @@ When intent is ambiguous, prefer the smallest useful structure and list the omis
 
 ### 5. Map to XmlUI
 
-- Use only `XmlUI`, `Vertical`, `Horizontal`, `Overlay`, `SizeBox`, `Text`, `Image`, `Button`, `Spacer`, `ProgressBar`, `WrapBox`, and `Grid`.
+- Use only `XmlUI`, `Vertical`, `Horizontal`, `Overlay`, `SizeBox`, `Text`, `Image`, `Button`, `Spacer`, `ProgressBar`, `WrapBox`, `Grid`, `ScrollBox`, `Canvas`, `MenuAnchor`, `Border`, and `UserWidget`.
 - The default mapping of layout containers (such as `Vertical` → `UVerticalBox`) is decided by the host's `WidgetClassMap` configuration; the Skill does not need to care about concrete classes when generating XML.
 - Prefer Figma Auto Layout hierarchy over absolute coordinates.
 - Use `Overlay` for genuine stacking or limited local positioning, not as a substitute for every layout.
@@ -127,5 +127,7 @@ Before finishing, verify:
 - No unavailable asset path or unsupported visual feature is presented as complete.
 
 Compile the contract before baking when `ParentClass` references it, but follow project safety instructions and never run update, cleanup, or revert scripts as a build shortcut. The editor baker creates `WBP_<sanitized complete XML basename>` under `BakedBlueprintOutputPath`, replacing spaces, hyphens, and dots with underscores; for example, `XmlUI_ProfileCard.xml` becomes `WBP_XmlUI_ProfileCard`. It does not overwrite an existing asset.
+
+For headless round-trip or batch verification, `XmlUI.ExportWbp` exports an existing Widget Blueprint back to DSL for side-by-side comparison and `XmlUI.BakeDsl` runs the same bake from the console; baked assets also carry the `XmlUI.SourceDsl` package metadata for cross-checking.
 
 Finish with the XML path, optional C++ path, expected bake path, resolved host conventions, unresolved assets/styles, and verification not performed. Keep the summary concise because the files are the deliverable.

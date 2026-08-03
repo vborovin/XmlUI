@@ -40,7 +40,7 @@
         "BtnClaim and BtnClose exist as Button nodes and matching UXmlButton BindWidget properties.",
         "The page dimmer and fake avatars are omitted, while the 8px radius and beveled/outlined title are listed as unsupported.",
         "ParentClass is /Script/RewardSystem.DailyRewardDialogPanel, and UDailyRewardDialogPanel uses REWARDSYSTEM_API and the supplied Panels directory convention.",
-        "The output contains no unsupported Canvas, Grid, ListView, Border, or custom style tags."
+        "The output contains no unsupported ListView or custom style tags."
       ]
     }
   ]

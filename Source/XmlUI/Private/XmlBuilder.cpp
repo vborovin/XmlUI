@@ -9,11 +9,18 @@
 #include "Components/SizeBox.h"
 #include "Components/SlateWrapperTypes.h"
 #include "Components/Widget.h"
+#include "Components/Border.h"
+#include "Components/BorderSlot.h"
 #include "Components/Button.h"
+#include "Components/CanvasPanel.h"
+#include "Components/CanvasPanelSlot.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/Image.h"
+#include "Components/MenuAnchor.h"
 #include "Components/ProgressBar.h"
+#include "Components/ScrollBox.h"
+#include "Components/ScrollBoxSlot.h"
 #include "Components/Spacer.h"
 #include "Components/TextBlock.h"
 #include "Components/UniformGridPanel.h"
@@ -22,6 +29,8 @@
 #include "Components/VerticalBoxSlot.h"
 #include "Components/WrapBox.h"
 #include "Components/WrapBoxSlot.h"
+#include "Engine/Blueprint.h"
+#include "Engine/Texture2D.h"
 #include "XmlButton.h"
 #include "XmlDslParser.h"
 #include "XmlPanel.h"
@@ -117,6 +126,23 @@ static UWidget* TryCreateMappedWidget(UWidgetTree* InTree, const FXmlNodeDesc& I
     return InTree->ConstructWidget<UWidget>(FoundClass, FName(*InNode.Name));
 }
 
+// UE 5.5's UUserWidget has no SetWidgetClass: the object's class is fixed at construction,
+// so the WBP class is resolved up front and passed to ConstructWidget.
+static UClass* ResolveUserWidgetClass(const FString& InPath)
+{
+    // Class paths ("/Script/..." or a generated class ending in "_C") load directly.
+    if (InPath.StartsWith(TEXT("/Script/")) || InPath.EndsWith(TEXT("_C")))
+    {
+        return LoadClass<UUserWidget>(nullptr, *InPath);
+    }
+    // Asset paths (e.g. /Game/UI/WBP_X) load the Blueprint and use its generated class.
+    if (UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr, *InPath))
+    {
+        return Blueprint->GeneratedClass;
+    }
+    return nullptr;
+}
+
 static void ApplyMappedText(FString& OutError, UWidget* InWidget, const FXmlNodeDesc& InNode)
 {
     UTextBlock* TextBlock = Cast<UTextBlock>(InWidget);
@@ -209,7 +235,27 @@ static void ApplyMappedImage(FString& OutError, UWidget* InWidget, const FXmlNod
         OutError += FString::Printf(TEXT("XmlUI: mapped Image class '%s' is not a UImage subclass\n"), *InWidget->GetClass()->GetName());
         return;
     }
-    Image->SetBrush(InBrush);
+    if (InBrush.GetResourceObject())
+    {
+        FSlateBrush FinalBrush = InBrush;
+        if (!InDesiredSize.IsZero())
+        {
+            // Serialize the desired size into the brush so the exporter can read it back.
+            FinalBrush.ImageSize = InDesiredSize;
+        }
+        Image->SetBrush(FinalBrush);
+    }
+    else
+    {
+        // Pure color: encode the tint into the brush so the exporter can read it back,
+        // but preserve an explicit color brush from the DSL (Brush="#AARRGGBB" without Color).
+        FSlateBrush SolidBrush = InBrush;
+        if (SolidBrush.TintColor.GetSpecifiedColor() == FLinearColor::White)
+        {
+            SolidBrush.TintColor = InColor;
+        }
+        Image->SetBrush(SolidBrush);
+    }
     Image->SetColorAndOpacity(InColor);
     Image->SetDesiredSizeOverride(InDesiredSize);
 }
@@ -230,7 +276,7 @@ static void ApplyMappedButton(FString& OutError, UWidget* InWidget, const FXmlNo
     }
 }
 
-static void ApplyMappedProgressBar(FString& OutError, UWidget* InWidget, float InPercent, const FLinearColor& InFillColor)
+static void ApplyMappedProgressBar(FString& OutError, UWidget* InWidget, const FXmlNodeDesc& InNode)
 {
     UProgressBar* ProgressBar = Cast<UProgressBar>(InWidget);
     if (!ProgressBar)
@@ -238,8 +284,22 @@ static void ApplyMappedProgressBar(FString& OutError, UWidget* InWidget, float I
         OutError += FString::Printf(TEXT("XmlUI: mapped ProgressBar class '%s' is not a UProgressBar subclass\n"), *InWidget->GetClass()->GetName());
         return;
     }
-    ProgressBar->SetPercent(InPercent);
-    ProgressBar->SetFillColorAndOpacity(InFillColor);
+    if (const FString* PercentValue = InNode.Attributes.Find(TEXT("Percent")))
+    {
+        float Percent = 0.f;
+        if (UXmlDslParser::ParseFloat(*PercentValue, Percent))
+        {
+            ProgressBar->SetPercent(Percent);
+        }
+    }
+    if (const FString* FillColorValue = InNode.Attributes.Find(TEXT("FillColor")))
+    {
+        FLinearColor FillColor;
+        if (UXmlDslParser::ParseColor(*FillColorValue, FillColor))
+        {
+            ProgressBar->SetFillColorAndOpacity(FillColor);
+        }
+    }
 }
 
 static void ApplyMappedSpacer(FString& OutError, UWidget* InWidget, float InSize)
@@ -492,6 +552,11 @@ UWidget* UXmlBuilder::BuildNodeInternal(UWidgetTree* Tree, const FXmlNodeDesc& N
                 if (UXmlDslParser::ParseColor(*ColorValue, Color))
                 {
                     Image->Color = Color;
+                    if (!Image->Brush.GetResourceObject() && Image->Brush.TintColor.GetSpecifiedColor() == FLinearColor::White)
+                    {
+                        // Mirror the mapped-image path: pure-color brushes carry the tint in the brush.
+                        Image->Brush.TintColor = Color;
+                    }
                 }
             }
             if (const FString* DesiredSizeValue = Node.Attributes.Find(TEXT("DesiredSize")))
@@ -601,12 +666,14 @@ UWidget* UXmlBuilder::BuildNodeInternal(UWidgetTree* Tree, const FXmlNodeDesc& N
             {
                 return nullptr;
             }
-            float Size = 0.f;
             if (const FString* SizeValue = Node.Attributes.Find(TEXT("Size")))
             {
-                UXmlDslParser::ParseFloat(*SizeValue, Size);
+                float Size = 0.f;
+                if (UXmlDslParser::ParseFloat(*SizeValue, Size))
+                {
+                    ApplyMappedSpacer(OutError, MappedWidget, Size);
+                }
             }
-            ApplyMappedSpacer(OutError, MappedWidget, Size);
             ApplyCommonAttributes(MappedWidget, Node);
             return MappedWidget;
         }
@@ -636,17 +703,7 @@ UWidget* UXmlBuilder::BuildNodeInternal(UWidgetTree* Tree, const FXmlNodeDesc& N
             {
                 return nullptr;
             }
-            float Percent = 0.f;
-            if (const FString* PercentValue = Node.Attributes.Find(TEXT("Percent")))
-            {
-                UXmlDslParser::ParseFloat(*PercentValue, Percent);
-            }
-            FLinearColor FillColor = FLinearColor::White;
-            if (const FString* FillColorValue = Node.Attributes.Find(TEXT("FillColor")))
-            {
-                UXmlDslParser::ParseColor(*FillColorValue, FillColor);
-            }
-            ApplyMappedProgressBar(OutError, MappedWidget, Percent, FillColor);
+            ApplyMappedProgressBar(OutError, MappedWidget, Node);
             ApplyCommonAttributes(MappedWidget, Node);
             return MappedWidget;
         }
@@ -726,6 +783,77 @@ UWidget* UXmlBuilder::BuildNodeInternal(UWidgetTree* Tree, const FXmlNodeDesc& N
         ConfigureGridWidget(Grid, Node, Tree, OutError, InWidgetClassMap);
         return Grid;
     }
+    else if (Node.Tag == TEXT("ScrollBox"))
+    {
+        bool bHasMapping = false;
+        UWidget* MappedWidget = TryCreateMappedWidget(Tree, Node, UScrollBox::StaticClass(), bHasMapping, OutError, InWidgetClassMap);
+        if (bHasMapping && !MappedWidget)
+        {
+            return nullptr;
+        }
+        UScrollBox* ScrollBox = MappedWidget ? Cast<UScrollBox>(MappedWidget) : Tree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), FName(*Node.Name));
+        if (const FString* OrientationValue = Node.Attributes.Find(TEXT("Orientation")))
+        {
+            const FString LowerValue = OrientationValue->ToLower();
+            if (LowerValue == TEXT("horizontal"))
+            {
+                ScrollBox->SetOrientation(EOrientation::Orient_Horizontal);
+            }
+            else if (LowerValue == TEXT("vertical"))
+            {
+                ScrollBox->SetOrientation(EOrientation::Orient_Vertical);
+            }
+        }
+        for (const FXmlNodeDesc& ChildNode : Node.Children)
+        {
+            UWidget* ChildWidget = BuildNodeInternal(Tree, ChildNode, OutError, InWidgetClassMap);
+            if (!ChildWidget)
+            {
+                continue;
+            }
+            UPanelSlot* Slot = ScrollBox->AddChild(ChildWidget);
+            ApplySlotAttributes(Slot, ChildNode);
+        }
+        Widget = ScrollBox;
+    }
+    else if (Node.Tag == TEXT("UserWidget"))
+    {
+        bool bHasMapping = false;
+        UWidget* MappedWidget = TryCreateMappedWidget(Tree, Node, UUserWidget::StaticClass(), bHasMapping, OutError, InWidgetClassMap);
+        if (bHasMapping && !MappedWidget)
+        {
+            return nullptr;
+        }
+        UClass* WidgetClass = UUserWidget::StaticClass();
+        if (const FString* WbpValue = Node.Attributes.Find(TEXT("WBP")))
+        {
+            WidgetClass = ResolveUserWidgetClass(*WbpValue);
+            if (!WidgetClass || !WidgetClass->IsChildOf(UUserWidget::StaticClass()))
+            {
+                OutError += FString::Printf(TEXT("XmlUI: UserWidget '%s' could not resolve WBP class '%s'\n"), *Node.Name, **WbpValue);
+                return nullptr;
+            }
+        }
+        UUserWidget* UserWidget = nullptr;
+        if (bHasMapping)
+        {
+            UserWidget = Cast<UUserWidget>(MappedWidget);
+        }
+        else
+        {
+            UserWidget = Tree->ConstructWidget<UUserWidget>(WidgetClass, FName(*Node.Name));
+        }
+        if (!UserWidget)
+        {
+            OutError += FString::Printf(TEXT("XmlUI: UserWidget '%s' failed to construct (provide a valid WBP attribute or a WidgetClassMap mapping)\n"), *Node.Name);
+            return nullptr;
+        }
+        if (Node.Children.Num() > 0)
+        {
+            OutError += FString::Printf(TEXT("XmlUI: UserWidget '%s' has children, ignoring them (nested WBP references cannot have children)\n"), *Node.Name);
+        }
+        Widget = UserWidget;
+    }
     else if (Node.Tag == TEXT("SizeBox"))
     {
         bool bHasMapping = false;
@@ -776,6 +904,101 @@ UWidget* UXmlBuilder::BuildNodeInternal(UWidgetTree* Tree, const FXmlNodeDesc& N
             }
             Widget = SizeBox;
         }
+    }
+    else if (Node.Tag == TEXT("Canvas"))
+    {
+        bool bHasMapping = false;
+        UWidget* MappedWidget = TryCreateMappedWidget(Tree, Node, UCanvasPanel::StaticClass(), bHasMapping, OutError, InWidgetClassMap);
+        if (bHasMapping && !MappedWidget)
+        {
+            return nullptr;
+        }
+        UCanvasPanel* Canvas = MappedWidget ? Cast<UCanvasPanel>(MappedWidget) : Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), FName(*Node.Name));
+        for (const FXmlNodeDesc& ChildNode : Node.Children)
+        {
+            UWidget* ChildWidget = BuildNodeInternal(Tree, ChildNode, OutError, InWidgetClassMap);
+            if (!ChildWidget)
+            {
+                continue;
+            }
+            UPanelSlot* Slot = Canvas->AddChild(ChildWidget);
+            ApplySlotAttributes(Slot, ChildNode);
+        }
+        Widget = Canvas;
+    }
+    else if (Node.Tag == TEXT("MenuAnchor"))
+    {
+        bool bHasMapping = false;
+        UWidget* MappedWidget = TryCreateMappedWidget(Tree, Node, UMenuAnchor::StaticClass(), bHasMapping, OutError, InWidgetClassMap);
+        if (bHasMapping && !MappedWidget)
+        {
+            return nullptr;
+        }
+        UMenuAnchor* Anchor = MappedWidget ? Cast<UMenuAnchor>(MappedWidget) : Tree->ConstructWidget<UMenuAnchor>(UMenuAnchor::StaticClass(), FName(*Node.Name));
+        if (const FString* MenuValue = Node.Attributes.Find(TEXT("Menu")))
+        {
+            UClass* MenuClass = ResolveUserWidgetClass(*MenuValue);
+            if (!MenuClass || !MenuClass->IsChildOf(UUserWidget::StaticClass()))
+            {
+                OutError += FString::Printf(TEXT("XmlUI: MenuAnchor '%s' could not resolve Menu class '%s'\n"), *Node.Name, **MenuValue);
+                return nullptr;
+            }
+            Anchor->MenuClass = MenuClass;
+        }
+        if (Node.Children.Num() > 0)
+        {
+            UWidget* ChildWidget = BuildNodeInternal(Tree, Node.Children[0], OutError, InWidgetClassMap);
+            if (ChildWidget)
+            {
+                Anchor->SetContent(ChildWidget);
+            }
+            if (Node.Children.Num() > 1)
+            {
+                OutError += FString::Printf(TEXT("XmlUI: MenuAnchor '%s' has more than one child, ignoring extras\n"), *Node.Name);
+            }
+        }
+        Widget = Anchor;
+    }
+    else if (Node.Tag == TEXT("Border"))
+    {
+        bool bHasMapping = false;
+        UWidget* MappedWidget = TryCreateMappedWidget(Tree, Node, UBorder::StaticClass(), bHasMapping, OutError, InWidgetClassMap);
+        if (bHasMapping && !MappedWidget)
+        {
+            return nullptr;
+        }
+        UBorder* Border = MappedWidget ? Cast<UBorder>(MappedWidget) : Tree->ConstructWidget<UBorder>(UBorder::StaticClass(), FName(*Node.Name));
+        if (const FString* BrushColorValue = Node.Attributes.Find(TEXT("BrushColor")))
+        {
+            FLinearColor BrushColor;
+            if (UXmlDslParser::ParseColor(*BrushColorValue, BrushColor))
+            {
+                Border->SetBrushColor(BrushColor);
+            }
+        }
+        if (const FString* PaddingValue = Node.Attributes.Find(TEXT("Padding")))
+        {
+            FMargin Padding;
+            if (UXmlDslParser::ParseMargin(*PaddingValue, Padding))
+            {
+                Border->SetPadding(Padding);
+            }
+        }
+        if (Node.Children.Num() > 0)
+        {
+            const FXmlNodeDesc& ChildNode = Node.Children[0];
+            UWidget* ChildWidget = BuildNodeInternal(Tree, ChildNode, OutError, InWidgetClassMap);
+            if (ChildWidget)
+            {
+                UPanelSlot* Slot = Border->SetContent(ChildWidget);
+                ApplySlotAttributes(Slot, ChildNode);
+            }
+            if (Node.Children.Num() > 1)
+            {
+                OutError += FString::Printf(TEXT("XmlUI: Border '%s' has more than one child, ignoring extras\n"), *Node.Name);
+            }
+        }
+        Widget = Border;
     }
     else
     {
@@ -848,11 +1071,17 @@ void UXmlBuilder::ApplyCommonAttributes(UWidget* Widget, const FXmlNodeDesc& Nod
     }
 }
 
+// Border owns Padding as a widget property; writing it into a parent slot would duplicate it on export.
+static const FString* FindSlotPadding(const FXmlNodeDesc& Node)
+{
+    return Node.Tag == TEXT("Border") ? nullptr : Node.Attributes.Find(TEXT("Padding"));
+}
+
 void UXmlBuilder::ApplySlotAttributes(UPanelSlot* Slot, const FXmlNodeDesc& Node)
 {
     if (UXmlPanelSlot* XmlSlot = Cast<UXmlPanelSlot>(Slot))
     {
-        if (const FString* PaddingValue = Node.Attributes.Find(TEXT("Padding")))
+        if (const FString* PaddingValue = FindSlotPadding(Node))
         {
             FMargin Padding;
             if (UXmlDslParser::ParseMargin(*PaddingValue, Padding))
@@ -887,8 +1116,11 @@ void UXmlBuilder::ApplySlotAttributes(UPanelSlot* Slot, const FXmlNodeDesc& Node
     }
     else if (UOverlaySlot* OverlaySlot = Cast<UOverlaySlot>(Slot))
     {
-        FMargin Padding;
-        if (UXmlDslParser::ParseMargin(Node.Attributes.FindRef(TEXT("Padding")), Padding)) { OverlaySlot->SetPadding(Padding); }
+        if (const FString* PaddingValue = FindSlotPadding(Node))
+        {
+            FMargin Padding;
+            if (UXmlDslParser::ParseMargin(*PaddingValue, Padding)) { OverlaySlot->SetPadding(Padding); }
+        }
         EHorizontalAlignment HAlign = HAlign_Fill;
         if (UXmlDslParser::ParseHAlign(Node.Attributes.FindRef(TEXT("HAlign")), HAlign)) { OverlaySlot->SetHorizontalAlignment(HAlign); }
         EVerticalAlignment VAlign = VAlign_Fill;
@@ -896,7 +1128,7 @@ void UXmlBuilder::ApplySlotAttributes(UPanelSlot* Slot, const FXmlNodeDesc& Node
     }
     else if (UVerticalBoxSlot* VBoxSlot = Cast<UVerticalBoxSlot>(Slot))
     {
-        if (const FString* PaddingValue = Node.Attributes.Find(TEXT("Padding")))
+        if (const FString* PaddingValue = FindSlotPadding(Node))
         {
             FMargin Padding;
             if (UXmlDslParser::ParseMargin(*PaddingValue, Padding)) { VBoxSlot->SetPadding(Padding); }
@@ -919,7 +1151,7 @@ void UXmlBuilder::ApplySlotAttributes(UPanelSlot* Slot, const FXmlNodeDesc& Node
     }
     else if (UHorizontalBoxSlot* HBoxSlot = Cast<UHorizontalBoxSlot>(Slot))
     {
-        if (const FString* PaddingValue = Node.Attributes.Find(TEXT("Padding")))
+        if (const FString* PaddingValue = FindSlotPadding(Node))
         {
             FMargin Padding;
             if (UXmlDslParser::ParseMargin(*PaddingValue, Padding)) { HBoxSlot->SetPadding(Padding); }
@@ -940,9 +1172,32 @@ void UXmlBuilder::ApplySlotAttributes(UPanelSlot* Slot, const FXmlNodeDesc& Node
             if (UXmlDslParser::ParseSizeRule(*SizeParamValue, SizeRule)) { HBoxSlot->SetSize(SizeRule); }
         }
     }
+    else if (UScrollBoxSlot* ScrollSlot = Cast<UScrollBoxSlot>(Slot))
+    {
+        if (const FString* PaddingValue = FindSlotPadding(Node))
+        {
+            FMargin Padding;
+            if (UXmlDslParser::ParseMargin(*PaddingValue, Padding)) { ScrollSlot->SetPadding(Padding); }
+        }
+        if (const FString* HAlignValue = Node.Attributes.Find(TEXT("HAlign")))
+        {
+            EHorizontalAlignment HAlign;
+            if (UXmlDslParser::ParseHAlign(*HAlignValue, HAlign)) { ScrollSlot->SetHorizontalAlignment(HAlign); }
+        }
+        if (const FString* VAlignValue = Node.Attributes.Find(TEXT("VAlign")))
+        {
+            EVerticalAlignment VAlign;
+            if (UXmlDslParser::ParseVAlign(*VAlignValue, VAlign)) { ScrollSlot->SetVerticalAlignment(VAlign); }
+        }
+        if (const FString* SizeParamValue = Node.Attributes.Find(TEXT("SizeParam")))
+        {
+            ESlateSizeRule::Type SizeRule;
+            if (UXmlDslParser::ParseSizeRule(*SizeParamValue, SizeRule)) { ScrollSlot->SetSize(SizeRule); }
+        }
+    }
     else if (UWrapBoxSlot* WrapSlot = Cast<UWrapBoxSlot>(Slot))
     {
-        if (const FString* PaddingValue = Node.Attributes.Find(TEXT("Padding")))
+        if (const FString* PaddingValue = FindSlotPadding(Node))
         {
             FMargin Padding;
             if (UXmlDslParser::ParseMargin(*PaddingValue, Padding)) { WrapSlot->SetPadding(Padding); }
@@ -977,6 +1232,76 @@ void UXmlBuilder::ApplySlotAttributes(UPanelSlot* Slot, const FXmlNodeDesc& Node
             if (UXmlDslParser::ParseVAlign(*VAlignValue, VAlign)) { GridSlot->SetVerticalAlignment(VAlign); }
         }
     }
+    else if (UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Slot))
+    {
+        if (const FString* PositionValue = Node.Attributes.Find(TEXT("Position")))
+        {
+            FVector2D Position;
+            if (UXmlDslParser::ParseVector2D(*PositionValue, Position)) { CanvasSlot->SetPosition(Position); }
+        }
+        if (const FString* SizeValue = Node.Attributes.Find(TEXT("Size")))
+        {
+            FVector2D Size;
+            if (UXmlDslParser::ParseVector2D(*SizeValue, Size)) { CanvasSlot->SetSize(Size); }
+        }
+        if (const FString* AnchorsValue = Node.Attributes.Find(TEXT("Anchors")))
+        {
+            TArray<FString> Parts;
+            AnchorsValue->TrimStartAndEnd().ParseIntoArray(Parts, TEXT(","), true);
+            FAnchors Anchors;
+            if (Parts.Num() == 2)
+            {
+                FVector2D Value;
+                if (UXmlDslParser::ParseVector2D(*AnchorsValue, Value))
+                {
+                    Anchors.Minimum = Value;
+                    Anchors.Maximum = Value;
+                    CanvasSlot->SetAnchors(Anchors);
+                }
+            }
+            else if (Parts.Num() == 4)
+            {
+                float MinX = 0.f, MinY = 0.f, MaxX = 0.f, MaxY = 0.f;
+                if (UXmlDslParser::ParseFloat(Parts[0], MinX) && UXmlDslParser::ParseFloat(Parts[1], MinY)
+                    && UXmlDslParser::ParseFloat(Parts[2], MaxX) && UXmlDslParser::ParseFloat(Parts[3], MaxY))
+                {
+                    Anchors.Minimum = FVector2D(MinX, MinY);
+                    Anchors.Maximum = FVector2D(MaxX, MaxY);
+                    CanvasSlot->SetAnchors(Anchors);
+                }
+            }
+        }
+        if (const FString* AlignmentValue = Node.Attributes.Find(TEXT("Alignment")))
+        {
+            FVector2D Alignment;
+            if (UXmlDslParser::ParseVector2D(*AlignmentValue, Alignment)) { CanvasSlot->SetAlignment(Alignment); }
+        }
+        if (const FString* ZOrderValue = Node.Attributes.Find(TEXT("ZOrder")))
+        {
+            int32 ZOrder = 0;
+            if (UXmlDslParser::ParseInt(*ZOrderValue, ZOrder)) { CanvasSlot->SetZOrder(ZOrder); }
+        }
+        if (const FString* AutoSizeValue = Node.Attributes.Find(TEXT("AutoSize")))
+        {
+            const FString LowerValue = AutoSizeValue->ToLower();
+            if (LowerValue == TEXT("true")) { CanvasSlot->SetAutoSize(true); }
+            else if (LowerValue == TEXT("false")) { CanvasSlot->SetAutoSize(false); }
+        }
+    }
+    else if (UBorderSlot* BorderSlot = Cast<UBorderSlot>(Slot))
+    {
+        // UBorderSlot::SetPadding syncs back into UBorder::Padding; OnSlotAdded already copied it from the Border.
+        if (const FString* HAlignValue = Node.Attributes.Find(TEXT("HAlign")))
+        {
+            EHorizontalAlignment HAlign;
+            if (UXmlDslParser::ParseHAlign(*HAlignValue, HAlign)) { BorderSlot->SetHorizontalAlignment(HAlign); }
+        }
+        if (const FString* VAlignValue = Node.Attributes.Find(TEXT("VAlign")))
+        {
+            EVerticalAlignment VAlign;
+            if (UXmlDslParser::ParseVAlign(*VAlignValue, VAlign)) { BorderSlot->SetVerticalAlignment(VAlign); }
+        }
+    }
 }
 
 void UXmlBuilder::ParseBrushFromString(FSlateBrush& OutBrush, const FString& Value)
@@ -990,8 +1315,15 @@ void UXmlBuilder::ParseBrushFromString(FSlateBrush& OutBrush, const FString& Val
         {
             OutBrush.SetResourceObject(Resource);
             OutBrush.DrawAs = ESlateBrushDrawType::Image;
-            // Placeholder default until the referenced asset/image provides a size.
-            OutBrush.ImageSize = FVector2D(32.f, 32.f);
+            if (UTexture2D* Tex = Cast<UTexture2D>(Resource))
+            {
+                OutBrush.ImageSize = FVector2D(static_cast<float>(Tex->GetSizeX()), static_cast<float>(Tex->GetSizeY()));
+            }
+            else
+            {
+                // Placeholder default until the referenced asset provides a size.
+                OutBrush.ImageSize = FVector2D(32.f, 32.f);
+            }
         }
         return;
     }

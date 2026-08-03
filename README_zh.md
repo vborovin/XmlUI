@@ -23,11 +23,12 @@
 
 ### Overview
 
-XmlUI 是一个跨项目的声明式 UI 插件：用一份 XML DSL 定义界面，在编辑器中一键烘焙出 Widget Blueprint 资产，并得到与之对应的 C++ 代码结构（`ParentClass` + `BindWidget`）。界面与代码同源，无需手工摆放控件或连线事件。
+XmlUI 是一个跨项目的声明式 UI 插件：用一份 XML DSL 定义界面，在编辑器中一键烘焙出 Widget Blueprint 资产，并得到与之对应的 C++ 代码结构（`ParentClass` + `BindWidget`）。转换是双向的：烘焙（DSL→WBP）把 DSL 变成资产，导出（WBP→DSL）把资产变回 DSL，每个烘焙出的资产还内嵌源 DSL（`XmlUI.SourceDsl`）用于验证与增量更新。界面与代码同源，无需手工摆放控件或连线事件。
 
 ```mermaid
 flowchart LR
-    XML["一份 XML DSL"] --> WBP["Widget Blueprint 资产"]
+    XML["一份 XML DSL"] -->|bake| WBP["Widget Blueprint 资产"]
+    WBP -->|export| XML
     XML --> CPP["对应 C++ 代码结构<br/>ParentClass + BindWidget"]
 ```
 
@@ -98,6 +99,21 @@ FString Error;
 UWidget* Root = UXmlBuilder::BuildFromString(this, XmlContent, Error);
 ```
 
+**5. 将 Widget Blueprint 导出回 DSL**
+
+烘焙资产可往返：Level Editor 主菜单 → **XmlUI** → **XmlUI: Export WBP to DSL** 可将选中的 `.uasset` 导出回 `.xml`。
+
+同样的操作也可通过控制台命令无头执行：
+
+```text
+XmlUI.ExportWbp Wbp=<资产路径> Out=<输出xml路径>
+XmlUI.BakeDsl File=<xml路径>
+```
+
+`XmlUI.BakeDsl` 与烘焙菜单等价；`XmlUI.ExportWbp` 将 DSL 写回。
+
+烘焙出的 Widget Blueprint 资产带有 `XmlUI.SourceDsl`、`XmlUI.SourceHash`、`XmlUI.BakeVersion` 包元数据（源 DSL 原文 + MD5），为未来的增量更新提供基线。
+
 ### DSL Reference
 
 **标签**
@@ -108,6 +124,11 @@ UWidget* Root = UXmlBuilder::BuildFromString(this, XmlContent, Error);
 | 叠放容器 | `Overlay` | 构建 `UOverlay`，支持子槽对齐与边距 |
 | 单内容容器 | `SizeBox` | 固定或约束期望尺寸，仅使用第一个子节点 |
 | 换行/等宽容器 | `WrapBox`, `Grid` | 构建 `UWrapBox`（换行行容器）与 `UUniformGridPanel`（等宽网格） |
+| 滚动容器 | `ScrollBox` | 构建 `UScrollBox`，`Orientation` 设置滚动方向 |
+| 绝对定位容器 | `Canvas` | 构建 `UCanvasPanel`；子槽使用 `Position`/`Size`/`Anchors`/`Alignment`/`ZOrder`/`AutoSize` |
+| 弹出菜单锚点 | `MenuAnchor` | 构建 `UMenuAnchor`；`Menu` 引用弹出 Widget Blueprint；最多一个子节点 |
+| 背景边框 | `Border` | 构建 `UBorder`，支持 `BrushColor`/`Padding`；最多一个子节点 |
+| 嵌套控件引用 | `UserWidget` | 通过 `WBP` 引用另一个 Widget Blueprint |
 | 元素 | `Text`, `Image`, `Button` | 文本、图像/色块、按钮 |
 | 辅助元素 | `Spacer`, `ProgressBar` | 间距与从左到右的进度条 |
 
@@ -120,11 +141,14 @@ UWidget* Root = UXmlBuilder::BuildFromString(this, XmlContent, Error);
 | 图像 | `Brush`, `Color`, `DesiredSize` |
 | 按钮 | `Text`, `ButtonColor`, `TextColor`, `Padding` |
 | 进度条 | `Percent`, `FillColor` |
+| 滚动容器 | `Orientation` |
+| 嵌套控件 | `WBP` |
 | 线性槽 | `Padding`, `HAlign`, `VAlign`, `SizeParam` |
 
 - 颜色支持 `#RRGGBB`、`#AARRGGBB` 与 `(R,G,B,A)` 三种写法；需要透明度时建议统一使用 `#AARRGGBB`。
 - Brush 资源需填写真实对象路径，例如 `Texture2D→/Game/UI/T_Icon.T_Icon`；在资产尚未导入前，可先用纯色占位。
 - `ArtFontSize` 使用插件内置的 Figma 字号映射；不采用该映射的项目请自行换算，并改用 `FontSize`。
+- `Canvas`、`MenuAnchor`、`Border` 的属性列在上方标签行为中；完整属性集见 DSL Reference。
 
 完整的行为与边界说明见 [XmlUI DSL Reference（英文）](./AI/figma-to-xmlui/skills/figma-to-xmlui/references/xmlui-dsl.md)。
 
@@ -213,7 +237,7 @@ XmlUI/
 <details>
 <summary>已知限制与烘焙注意事项</summary>
 
-- 目前尚无 `Canvas`、`Border`、输入框、滑块、列表视图、渐变、圆角、模糊或动画等标签。
+- 目前尚无输入框、滑块、列表视图、渐变、圆角、模糊或动画等标签。
 - 每个烘焙节点都必须拥有非空、合法且全局唯一的 `Name`。
 - XML 生成说明应写在 `<XmlUI>` 根节点内部；根节点之前的注释可能导致 Unreal XML 解析失败。
 - 根节点没有父槽，因此根上的 `Padding`、`HAlign`、`VAlign`、`SizeParam` 均不生效。
