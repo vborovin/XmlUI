@@ -137,9 +137,9 @@ Baked Widget Blueprint assets carry the package metadata `XmlUI.SourceDsl`, `Xml
 | Scope | Attributes |
 |---|---|
 | Common | `Name`, `Visibility`, `RenderOpacity` |
-| Text | `Text`, `FontSize`, `ArtFontSize`, `Color`, `Justification`, `WrapTextAt`, `ShadowColor`, `ShadowOffset` |
+| Text | `Text`, `FontSize`, `ArtFontSize`, `FontFamily`, `Color`, `Justification`, `WrapTextAt`, `ShadowColor`, `ShadowOffset` |
 | Image | `Brush`, `Color`, `DesiredSize` |
-| Button | `Text`, `ButtonColor`, `TextColor`, `Padding` |
+| Button | `Text`, `ButtonColor`, `TextColor`, `FontFamily`, `Padding` |
 | Progress | `Percent`, `FillColor` |
 | Scroll box | `Orientation` |
 | Nested widget | `WBP` |
@@ -148,6 +148,7 @@ Baked Widget Blueprint assets carry the package metadata `XmlUI.SourceDsl`, `Xml
 - Colors accept `#RRGGBB`, `#AARRGGBB`, and `(R,G,B,A)`; when alpha is involved, prefer `#AARRGGBB`.
 - Resource brushes require an actual object path, e.g. `Texture2D→/Game/UI/T_Icon.T_Icon`. Until the asset is imported, use a solid-color placeholder.
 - `ArtFontSize` uses the plugin's built-in Figma-size lookup; projects that do not adopt this mapping should convert sizes themselves and use `FontSize` instead.
+- `FontFamily` is a generic font-family identifier resolved through the host-configured `XmlUISettings.FontFamilyMap`, whose keys are host-defined; the Figma workflow just conventionally uses Figma font family names (for example `PingFang SC`) as keys. Unmapped or unloadable names fall back to the engine default font with a warning.
 - `Canvas`, `MenuAnchor`, and `Border` attributes are listed in the tag behavior above; the DSL Reference documents the full set.
 
 See the [XmlUI DSL Reference](./AI/figma-to-xmlui/skills/figma-to-xmlui/references/xmlui-dsl.md) for the full behavior and edge cases.
@@ -178,7 +179,7 @@ Without `ParentClass`, the baker falls back to the configured `BaseWidgetClass`,
 Plugin defaults live in `Config/DefaultXmlUI.ini`; a host project can override the same section in its own `Config/DefaultXmlUI.ini`:
 
 ```ini
-[/Script/XmlUIEditor.XmlUISettings]
+[/Script/XmlUI.XmlUISettings]
 BaseWidgetClass=/Script/UMG.UserWidget
 XmlRootPath=
 BakedBlueprintOutputPath=/Game/UI
@@ -190,6 +191,7 @@ BakedBlueprintOutputPath=/Game/UI
 | `XmlRootPath` | Initial directory for the XML file picker | Empty; falls back to the project root |
 | `BakedBlueprintOutputPath` | Output directory for Widget Blueprints | `/Game/UI` |
 | `WidgetClassMap` | Maps DSL tags to host widget class paths | Empty |
+| `FontFamilyMap` | Maps font-family names (host-defined keys; the Figma workflow conventionally uses Figma font family names) to host font asset paths | Empty |
 
 A host project can map any DSL tag to its own widget class through `XmlUISettings.WidgetClassMap` (for example `Text` → `USampleTextBlock`); the plugin itself stays project-independent.
 

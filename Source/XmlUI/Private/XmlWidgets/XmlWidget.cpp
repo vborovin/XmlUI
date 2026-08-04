@@ -19,16 +19,10 @@ void UXmlWidget::ReleaseSlateResources(bool bReleaseChildren)
     Super::ReleaseSlateResources(bReleaseChildren);
 }
 
-UFont* GetXmlProjectFont()
-{
-    static UFont* ProjectFont = LoadObject<UFont>(nullptr, *UWidget::GetDefaultFontName());
-    return ProjectFont;
-}
-
 FSlateFontInfo UXmlTextBlock::BuildFontInfo() const
 {
     const int32 EffectiveSize = (ArtFontSize >= 0) ? GetXmlFontSizeByArtFontSize(ArtFontSize) : FontSize;
-    return FSlateFontInfo(GetXmlProjectFont(), EffectiveSize);
+    return FSlateFontInfo(GetXmlFontByFamily(FontFamily), EffectiveSize);
 }
 
 TSharedRef<SWidget> UXmlTextBlock::BuildSlateWidget()

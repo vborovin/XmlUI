@@ -33,7 +33,7 @@ figma-to-xmlui/
 - A Figma MCP connection for link-based input, or image-capable model input for screenshots.
 - A C++ game module when generating a paired contract class. Blueprint-only projects can generate XML without one.
 
-The workflow does not hard-code a host module, API macro, class naming scheme, source directory, design resolution, or font family. It derives those conventions from the target `.uproject`, `.Build.cs` files, existing widgets, XmlUI settings, and project instructions; when a scale policy cannot be inferred safely, it asks for the target frame dimensions.
+The workflow does not hard-code a host module, API macro, class naming scheme, source directory, or design resolution. It derives those conventions from the target `.uproject`, `.Build.cs` files, existing widgets, XmlUI settings, and project instructions; font families are likewise not hard-coded — the DSL `FontFamily` attribute names the Figma family and the host's `XmlUISettings.FontFamilyMap` resolves it to a font asset. When a scale policy cannot be inferred safely, it asks for the target frame dimensions.
 
 `ArtFontSize` uses XmlUI's built-in Figma-to-engine lookup. Projects that do not adopt that lookup should apply their own conversion and emit `FontSize` instead; the Skill inspects existing XML and project guidance before choosing either attribute.
 

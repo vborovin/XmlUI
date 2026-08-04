@@ -137,9 +137,9 @@ XmlUI.BakeDsl File=<xml路径>
 | 范围 | 属性 |
 |---|---|
 | 通用 | `Name`, `Visibility`, `RenderOpacity` |
-| 文本 | `Text`, `FontSize`, `ArtFontSize`, `Color`, `Justification`, `WrapTextAt`, `ShadowColor`, `ShadowOffset` |
+| 文本 | `Text`, `FontSize`, `ArtFontSize`, `FontFamily`, `Color`, `Justification`, `WrapTextAt`, `ShadowColor`, `ShadowOffset` |
 | 图像 | `Brush`, `Color`, `DesiredSize` |
-| 按钮 | `Text`, `ButtonColor`, `TextColor`, `Padding` |
+| 按钮 | `Text`, `ButtonColor`, `TextColor`, `FontFamily`, `Padding` |
 | 进度条 | `Percent`, `FillColor` |
 | 滚动容器 | `Orientation` |
 | 嵌套控件 | `WBP` |
@@ -148,6 +148,7 @@ XmlUI.BakeDsl File=<xml路径>
 - 颜色支持 `#RRGGBB`、`#AARRGGBB` 与 `(R,G,B,A)` 三种写法；需要透明度时建议统一使用 `#AARRGGBB`。
 - Brush 资源需填写真实对象路径，例如 `Texture2D→/Game/UI/T_Icon.T_Icon`；在资产尚未导入前，可先用纯色占位。
 - `ArtFontSize` 使用插件内置的 Figma 字号映射；不采用该映射的项目请自行换算，并改用 `FontSize`。
+- `FontFamily` 是通用的字体族标识符，通过宿主在 `XmlUISettings.FontFamilyMap` 中的配置解析，键由宿主自定义；与 Figma 协作时通常约定用 Figma 字体族名（如 `PingFang SC`）作为键。未映射或加载失败的字体名回退到引擎默认字体并输出警告。
 - `Canvas`、`MenuAnchor`、`Border` 的属性列在上方标签行为中；完整属性集见 DSL Reference。
 
 完整的行为与边界说明见 [XmlUI DSL Reference（英文）](./AI/figma-to-xmlui/skills/figma-to-xmlui/references/xmlui-dsl.md)。
@@ -178,7 +179,7 @@ UXmlTextBlock* PlayerNameText = nullptr;
 插件默认配置位于 `Config/DefaultXmlUI.ini`，宿主工程可在自己的 `Config/DefaultXmlUI.ini` 中覆盖同名配置节：
 
 ```ini
-[/Script/XmlUIEditor.XmlUISettings]
+[/Script/XmlUI.XmlUISettings]
 BaseWidgetClass=/Script/UMG.UserWidget
 XmlRootPath=
 BakedBlueprintOutputPath=/Game/UI
@@ -190,6 +191,7 @@ BakedBlueprintOutputPath=/Game/UI
 | `XmlRootPath` | XML 文件选择器的初始目录 | 空，回退到工程根目录 |
 | `BakedBlueprintOutputPath` | Widget Blueprint 输出目录 | `/Game/UI` |
 | `WidgetClassMap` | 将 DSL 标签映射到宿主控件类路径 | 空 |
+| `FontFamilyMap` | 将字体族名（键由宿主自定义；与 Figma 协作时通常约定用 Figma 字体族名）映射到宿主字体资产路径 | 空 |
 
 宿主工程可通过 `XmlUISettings.WidgetClassMap` 将任意 DSL 标签映射到自研控件类（如 `Text` → `USampleTextBlock`）；插件本身保持项目无关。
 

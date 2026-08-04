@@ -312,6 +312,7 @@ namespace
             if (!XmlText->Text.IsEmpty()) AppendAttr(Out, TEXT("Text"), XmlText->Text.ToString());
             if (XmlText->FontSize != Default->FontSize) AppendAttr(Out, TEXT("FontSize"), FString::FromInt(XmlText->FontSize));
             if (XmlText->ArtFontSize != Default->ArtFontSize) AppendAttr(Out, TEXT("ArtFontSize"), FString::FromInt(XmlText->ArtFontSize));
+            if (!XmlText->FontFamily.IsEmpty()) AppendAttr(Out, TEXT("FontFamily"), XmlText->FontFamily);
             if (XmlText->Color != Default->Color) AppendAttr(Out, TEXT("Color"), ColorToHex(XmlText->Color));
             if (XmlText->Justification != Default->Justification) AppendAttr(Out, TEXT("Justification"), JustificationToString(XmlText->Justification));
             if (XmlText->WrapTextAt != Default->WrapTextAt) AppendAttr(Out, TEXT("WrapTextAt"), FString::SanitizeFloat(XmlText->WrapTextAt));
@@ -323,6 +324,21 @@ namespace
             const UTextBlock* Default = GetDefault<UTextBlock>(Widget->GetClass());
             if (!EngineText->GetText().IsEmpty()) AppendAttr(Out, TEXT("Text"), EngineText->GetText().ToString());
             if (EngineText->GetFont().Size != Default->GetFont().Size) AppendAttr(Out, TEXT("FontSize"), FString::FromInt(EngineText->GetFont().Size));
+            if (const UObject* FontObject = EngineText->GetFont().FontObject)
+            {
+                // Reverse-lookup non-default fonts through FontFamilyMap (value = asset path -> key = Figma family name).
+                if (FontObject->GetPathName() != UWidget::GetDefaultFontName().ToString())
+                {
+                    for (const TPair<FString, FString>& Pair : GetDefault<UXmlUISettings>()->FontFamilyMap)
+                    {
+                        if (Pair.Value == FontObject->GetPathName())
+                        {
+                            AppendAttr(Out, TEXT("FontFamily"), Pair.Key);
+                            break;
+                        }
+                    }
+                }
+            }
             if (FIntProperty* ArtFontProp = FindFProperty<FIntProperty>(Widget->GetClass(), TEXT("ArtFont")))
             {
                 const int32 ArtFontSize = ArtFontProp->GetPropertyValue_InContainer(Widget);
@@ -399,6 +415,7 @@ namespace
             if (!XmlButton->Text.IsEmpty()) AppendAttr(Out, TEXT("Text"), XmlButton->Text.ToString());
             if (XmlButton->ButtonColor != Default->ButtonColor) AppendAttr(Out, TEXT("ButtonColor"), ColorToHex(XmlButton->ButtonColor));
             if (XmlButton->TextColor != Default->TextColor) AppendAttr(Out, TEXT("TextColor"), ColorToHex(XmlButton->TextColor));
+            if (!XmlButton->FontFamily.IsEmpty()) AppendAttr(Out, TEXT("FontFamily"), XmlButton->FontFamily);
             if (XmlButton->ContentPadding != Default->ContentPadding) AppendAttr(Out, TEXT("Padding"), MarginToString(XmlButton->ContentPadding));
         }
         else if (const UButton* EngineButton = Cast<UButton>(Widget))

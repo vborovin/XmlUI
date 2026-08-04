@@ -96,7 +96,7 @@ Use this document shape; the generation note belongs inside the root because the
 ```
 
 - Give every node a globally unique PascalCase `Name` containing only letters, digits, and underscores and starting with a letter. The baker allows a broader first character, but C++ identifiers do not.
-- Follow the host font policy: use `ArtFontSize` only when the project adopts XmlUI's built-in art-size lookup; otherwise convert with the project's policy and use `FontSize`. Use `#AARRGGBB` for colors with alpha.
+- Follow the host font policy: when the host configures `XmlUISettings.FontFamilyMap`, write `FontFamily="Figma font name"` on `Text`/`Button` nodes and let the mapping resolve the font asset; use `ArtFontSize` only when the project adopts XmlUI's built-in art-size lookup; otherwise convert with the project's policy and use `FontSize`. Use `#AARRGGBB` for colors with alpha.
 - Escape XML attribute text, especially `&`, `<`, `>`, and quotes.
 - Do not put root spacing in root slot attributes. Wrap the content and apply spacing to that child.
 - Add root `ParentClass` only after resolving a real, loadable host class; otherwise let the baker use `BaseWidgetClass`.

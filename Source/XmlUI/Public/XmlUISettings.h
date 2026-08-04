@@ -7,7 +7,7 @@
 #include "XmlUISettings.generated.h"
 
 UCLASS(config = XmlUI, defaultconfig)
-class UXmlUISettings : public UDeveloperSettings
+class XMLUI_API UXmlUISettings : public UDeveloperSettings
 {
     GENERATED_BODY()
 
@@ -27,4 +27,8 @@ public:
         Passed to UXmlBuilder::BuildNode at bake time; tags without a mapping fall back to the plugin defaults. Project-agnostic: host adaptation is fully driven by this config. */
     UPROPERTY(config, EditAnywhere, Category = "XmlUI")
     TMap<FString, FString> WidgetClassMap;
+
+    /** Maps Figma font family names to host font asset paths (e.g. "PingFang SC" -> "/Game/UI/Fonts/PingFang.PingFang"). */
+    UPROPERTY(config, EditAnywhere, Category = "XmlUI")
+    TMap<FString, FString> FontFamilyMap;
 };

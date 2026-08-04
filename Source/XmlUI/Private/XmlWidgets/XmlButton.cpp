@@ -21,7 +21,7 @@ TSharedRef<SWidget> UXmlButton::RebuildWidget()
     {
         MyLabel = SNew(STextBlock)
             .Text(Text)
-            .Font(FSlateFontInfo(GetXmlProjectFont(), 16))
+            .Font(FSlateFontInfo(GetXmlFontByFamily(FontFamily), 16))
             .ColorAndOpacity(TextColor)
             .Justification(ETextJustify::Center);
     }

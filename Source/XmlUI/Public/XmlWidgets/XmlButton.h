@@ -30,6 +30,9 @@ public:
     FLinearColor TextColor = FLinearColor::White;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI")
+    FString FontFamily;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI")
     FMargin ContentPadding = FMargin(8.f, 4.f);
 
 public:

@@ -35,6 +35,7 @@
 #include "Engine/Texture2D.h"
 #include "XmlWidgets/XmlButton.h"
 #include "XmlDslParser.h"
+#include "XmlFontSizeUtil.h"
 #include "XmlWidgets/XmlPanel.h"
 #include "XmlWidgets/XmlWidget.h"
 #include "Misc/FileHelper.h"
@@ -228,6 +229,11 @@ static void ApplyMappedText(FString& OutError, UWidget* InWidget, const FXmlNode
             TextBlock->SetShadowOffset(Offset);
         }
     }
+    FString FontFamily;
+    if (const FString* FontFamilyValue = InNode.Attributes.Find(TEXT("FontFamily")))
+    {
+        FontFamily = *FontFamilyValue;
+    }
     int32 FontSize = 16;
     bool bHasFontSize = false;
     if (const FString* FontSizeValue = InNode.Attributes.Find(TEXT("FontSize")))
@@ -254,9 +260,11 @@ static void ApplyMappedText(FString& OutError, UWidget* InWidget, const FXmlNode
             }
         }
     }
-    if (bHasFontSize)
+    if (bHasFontSize || !FontFamily.IsEmpty())
     {
-        TextBlock->SetFont(FSlateFontInfo(UWidget::GetDefaultFontName(), FontSize));
+        // FontFamily without FontSize must keep the mapped widget's configured default size, not force 16.
+        const int32 EffectiveFontSize = bHasFontSize ? FontSize : TextBlock->GetFont().Size;
+        TextBlock->SetFont(FSlateFontInfo(GetXmlFontByFamily(FontFamily), EffectiveFontSize));
     }
 }
 
@@ -303,9 +311,9 @@ static void ApplyMappedButton(FString& OutError, UWidget* InWidget, const FXmlNo
     }
     Button->SetColorAndOpacity(InButtonColor);
     // UE 5.5's UButton has no SetContentPadding API (content padding lives in the button style).
-    if (InNode.Attributes.Contains(TEXT("Text")) || InNode.Attributes.Contains(TEXT("TextColor")))
+    if (InNode.Attributes.Contains(TEXT("Text")) || InNode.Attributes.Contains(TEXT("TextColor")) || InNode.Attributes.Contains(TEXT("FontFamily")))
     {
-        OutError += FString::Printf(TEXT("XmlUI: mapped Button '%s': Text/TextColor are not applied to mapped UButton classes (use a child Text node)\n"), *InNode.Name);
+        OutError += FString::Printf(TEXT("XmlUI: mapped Button '%s': Text/TextColor/FontFamily are not applied to mapped UButton classes (use a child Text node)\n"), *InNode.Name);
     }
 }
 
@@ -480,6 +488,10 @@ UWidget* UXmlBuilder::BuildTextNode(UWidgetTree* Tree, const FXmlNodeDesc& Node,
             {
                 TextBlock->ArtFontSize = ArtFontSize;
             }
+        }
+        if (const FString* FontFamilyValue = Node.Attributes.Find(TEXT("FontFamily")))
+        {
+            TextBlock->FontFamily = *FontFamilyValue;
         }
         if (const FString* ColorValue = Node.Attributes.Find(TEXT("Color")))
         {
@@ -712,6 +724,10 @@ UWidget* UXmlBuilder::BuildButtonNode(UWidgetTree* Tree, const FXmlNodeDesc& Nod
             {
                 Button->TextColor = TextColor;
             }
+        }
+        if (const FString* FontFamilyValue = Node.Attributes.Find(TEXT("FontFamily")))
+        {
+            Button->FontFamily = *FontFamilyValue;
         }
         if (const FString* PaddingValue = Node.Attributes.Find(TEXT("Padding")))
         {

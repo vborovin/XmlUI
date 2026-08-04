@@ -50,6 +50,9 @@ public:
     int32 ArtFontSize = -1;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI")
+    FString FontFamily;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI")
     FLinearColor Color = FLinearColor::White;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI")

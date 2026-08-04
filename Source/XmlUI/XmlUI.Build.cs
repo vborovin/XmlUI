@@ -16,6 +16,7 @@ public class XmlUI : ModuleRules
 			"SlateCore",
 			"InputCore",
 			"XmlParser",
+			"DeveloperSettings",
 		});
 	}
 }

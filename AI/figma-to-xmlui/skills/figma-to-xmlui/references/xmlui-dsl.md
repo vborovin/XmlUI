@@ -40,7 +40,7 @@ There is no `Input`, `Slider`, `ListView`, or animation tag. An unknown child ta
 In `Config/DefaultXmlUI.ini` the map must be written as a single native map value (not per-line array syntax; per-line `Key=`/`Value=` pairs are rejected by `LoadConfig` for `TMap` properties):
 
 ```ini
-[/Script/XmlUIEditor.XmlUISettings]
+[/Script/XmlUI.XmlUISettings]
 WidgetClassMap=(("Text","/Script/SampleGame.SampleTextBlock"),("Image","/Script/SampleGame.SampleImage"))
 ```
 
@@ -74,13 +74,14 @@ Attribute names and tag names are case-sensitive.
 | `Text` | string | Escape XML-reserved characters |
 | `ArtFontSize` | integer | Uses `GetXmlFontSizeByArtFontSize` and its built-in `ArtFont2FontMap`; takes precedence when non-negative |
 | `FontSize` | integer | Direct engine size; use when the host does not adopt the built-in art-size lookup |
+| `FontFamily` | string | Figma font family name, resolved through the host-configured `XmlUISettings.FontFamilyMap`; unmapped or unloadable names fall back to the default widget font with a warning |
 | `Color` | color | Text color |
 | `Justification` | `Left`, `Center`, `Right` | Case-insensitive |
 | `WrapTextAt` | float | Wrap width |
 | `ShadowColor` | color | Shadow tint |
 | `ShadowOffset` | vector | `X,Y`; blur is unsupported |
 
-The project font comes from Unreal's default widget font. XmlUI has no per-node font-family, weight, letter-spacing, outline, or rich-text support.
+The default project font comes from Unreal's default widget font. `FontFamily` resolves a Figma font family name through the host-configured `XmlUISettings.FontFamilyMap` and falls back to the default widget font with a warning when unmapped or unloadable. Weight, letter-spacing, outline, and rich-text support remain unavailable.
 
 Choose the size attribute from host conventions. `ArtFontSize` is a plugin-provided convenience mapping, not a universal Figma scale. A project with a different typography policy should convert the source size itself and emit `FontSize`; inspect existing XML or ask before choosing.
 
@@ -101,6 +102,7 @@ Use `SizeBox` around an image when width or height must be enforced by layout.
 | `Text` | string | Used only when the button has no custom child |
 | `ButtonColor` | color | Normal tint; pressed and disabled colors are derived |
 | `TextColor` | color | Built-in text/foreground color |
+| `FontFamily` | string | Applied to the built-in button label via `XmlUISettings.FontFamilyMap` |
 | `Padding` | margin | Button content padding |
 
 A button can contain one custom child, such as an `Image` or a layout container. When a `Button` is itself a child of `XmlUI`, `Vertical`, `Horizontal`, or `Overlay`, the same `Padding` attribute is also read as parent-slot padding. Wrap the button in a `SizeBox` or another container when content padding and outer spacing must differ.
@@ -298,7 +300,7 @@ Document rather than silently approximating:
 - Gradients.
 - Strokes and text outlines.
 - Blur, backdrop blur, and shadow blur radius.
-- Per-node font family/weight and letter spacing.
+- Font weight and letter spacing.
 - Rich text with mixed styles.
 - Arbitrary transforms, rotation, and masking.
 - Animation and interaction state styling beyond `UXmlButton` defaults.

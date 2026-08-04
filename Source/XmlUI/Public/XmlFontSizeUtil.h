@@ -1,6 +1,10 @@
 #pragma once
 #include "CoreMinimal.h"
+#include "Components/Widget.h"
 #include "Containers/Map.h"
+#include "Engine/Font.h"
+#include "UObject/UObjectGlobals.h"
+#include "XmlUISettings.h"
 
 // Figma art font size -> engine font size mapping
 inline int GetXmlFontSizeByArtFontSize(int ArtFontSize)
@@ -31,5 +35,26 @@ inline int GetXmlFontSizeByArtFontSize(int ArtFontSize)
     return FMath::Lerp(static_cast<float>(MinArtFont2Font.Value), static_cast<float>(MaxArtFont2Font.Value), Factor);
 }
 
-class UFont;
-UFont* GetXmlProjectFont();
+// Resolves a Figma font family name to a UFont via UXmlUISettings::FontFamilyMap.
+// Falls back to the engine default widget font with a warning when unmapped or unloadable.
+inline UFont* GetXmlFontByFamily(const FString& FontFamily)
+{
+    UFont* DefaultFont = LoadObject<UFont>(nullptr, *UWidget::GetDefaultFontName());
+    if (FontFamily.IsEmpty())
+    {
+        return DefaultFont;
+    }
+    const UXmlUISettings* Settings = GetDefault<UXmlUISettings>();
+    const FString* FontPath = Settings->FontFamilyMap.Find(FontFamily);
+    if (!FontPath || FontPath->IsEmpty())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("XmlUI: Font family '%s' is not mapped in XmlUISettings.FontFamilyMap; using the default widget font"), *FontFamily);
+        return DefaultFont;
+    }
+    if (UFont* Font = LoadObject<UFont>(nullptr, **FontPath))
+    {
+        return Font;
+    }
+    UE_LOG(LogTemp, Warning, TEXT("XmlUI: Failed to load font '%s' for family '%s'; using the default widget font"), **FontPath, *FontFamily);
+    return DefaultFont;
+}

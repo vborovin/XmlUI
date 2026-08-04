@@ -19,9 +19,9 @@ Declarative UMG plugin: an XML DSL is parsed into `FXmlNodeDesc`, then either ba
 - `CreatedBy` / `CreatedByURL` in `.uplugin` identify the author; keep them accurate.
 
 ## Layout
-- `Source/XmlUI` — Runtime module; deps: Core, CoreUObject, Engine, UMG, Slate, SlateCore, InputCore, XmlParser. LoadingPhase Default.
-- `Source/XmlUIEditor` — Editor module; deps: XmlUI + UnrealEd, ToolMenus, UMGEditor, Kismet, AssetTools, DesktopPlatform, LevelEditor, DeveloperSettings. Baker lives in `Private/XmlUI/`.
-- `Config/DefaultXmlUI.ini` — `UXmlUISettings` (UDeveloperSettings, category `XmlUI`): `BaseWidgetClass`, `XmlRootPath`, `BakedBlueprintOutputPath` (default `/Game/UI`), `WidgetClassMap`.
+- `Source/XmlUI` — Runtime module; deps: Core, CoreUObject, Engine, UMG, Slate, SlateCore, InputCore, XmlParser, DeveloperSettings. LoadingPhase Default.
+- `Source/XmlUIEditor` — Editor module; deps: XmlUI + UnrealEd, ToolMenus, UMGEditor, Kismet, AssetTools, DesktopPlatform, LevelEditor. Baker lives in `Private/XmlUI/`.
+- `Config/DefaultXmlUI.ini` — `UXmlUISettings` (UDeveloperSettings, category `XmlUI`): `BaseWidgetClass`, `XmlRootPath`, `BakedBlueprintOutputPath` (default `/Game/UI`), `WidgetClassMap`, `FontFamilyMap`.
 - No `Content/` (`CanContainContent: false`), no tests, no plugin-local build scripts.
 
 ## Data flow
