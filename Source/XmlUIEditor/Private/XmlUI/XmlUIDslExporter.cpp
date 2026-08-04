@@ -327,7 +327,7 @@ namespace
             if (const UObject* FontObject = EngineText->GetFont().FontObject)
             {
                 // Reverse-lookup non-default fonts through FontFamilyMap (value = asset path -> key = Figma family name).
-                if (FontObject->GetPathName() != UWidget::GetDefaultFontName().ToString())
+                if (FontObject->GetPathName() != UWidget::GetDefaultFontName())
                 {
                     for (const TPair<FString, FString>& Pair : GetDefault<UXmlUISettings>()->FontFamilyMap)
                     {
