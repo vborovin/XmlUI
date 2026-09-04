@@ -57,9 +57,13 @@ inline UFont* GetXmlFontByFamily(const FString& FontFamily)
     {
         UE_LOG(LogTemp, Warning, TEXT("XmlUI: Font family '%s' is not mapped in XmlUISettings.FontFamilyMap; using the default widget font"), *FontFamily);
     }
-    else if (!(Resolved = LoadObject<UFont>(nullptr, **FontPath)))
+    else
     {
-        UE_LOG(LogTemp, Warning, TEXT("XmlUI: Failed to load font '%s' for family '%s'; using the default widget font"), **FontPath, *FontFamily);
+        Resolved = LoadObject<UFont>(nullptr, **FontPath);
+        if (!Resolved)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("XmlUI: Failed to load font '%s' for family '%s'; using the default widget font"), **FontPath, *FontFamily);
+        }
     }
     FamilyToFont.Add(FontFamily, Resolved);
     return Resolved ? Resolved : DefaultFont;
