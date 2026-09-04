@@ -177,6 +177,7 @@ UXmlTextBlock* PlayerNameText = nullptr;
 ### Configuration
 
 插件默认配置位于 `Config/DefaultXmlUI.ini`，宿主工程可在自己的 `Config/DefaultXmlUI.ini` 中覆盖同名配置节：
+> [!NOTE] 从 XmlUI 0.1.0 升级：设置类已移入运行时模块，配置节现为 `[/Script/XmlUI.XmlUISettings]` —— 请将工程 `Config/DefaultXmlUI.ini` 中旧的 `[/Script/XmlUIEditor.XmlUISettings]` 节直接改名即可；键与默认值均不变。
 
 ```ini
 [/Script/XmlUI.XmlUISettings]

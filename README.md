@@ -177,6 +177,7 @@ Without `ParentClass`, the baker falls back to the configured `BaseWidgetClass`,
 ### Configuration
 
 Plugin defaults live in `Config/DefaultXmlUI.ini`; a host project can override the same section in its own `Config/DefaultXmlUI.ini`:
+> [!NOTE] Upgrading from XmlUI 0.1.0: the settings class moved to the runtime module, so the config section is now `[/Script/XmlUI.XmlUISettings]` — rename the old `[/Script/XmlUIEditor.XmlUISettings]` section in your project's `Config/DefaultXmlUI.ini`; keys and defaults are unchanged.
 
 ```ini
 [/Script/XmlUI.XmlUISettings]
