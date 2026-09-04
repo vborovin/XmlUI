@@ -328,12 +328,19 @@ namespace
             if (EngineText->GetFont().Size != Default->GetFont().Size) AppendAttr(Out, TEXT("FontSize"), FString::FromInt(EngineText->GetFont().Size));
             if (const UObject* FontObject = EngineText->GetFont().FontObject)
             {
-                // Reverse-lookup non-default fonts through FontFamilyMap (value = asset path -> key = Figma family name).
-                if (FontObject->GetPathName() != UWidget::GetDefaultFontName())
+                // GetDefaultFontName() is a package path while GetPathName() appends ".ObjectName"; strip it before comparing.
+                FString FontPackagePath = FontObject->GetPathName();
+                if (const int32 DotIndex = FontPackagePath.Find(TEXT("."), ESearchCase::CaseSensitive, ESearchDir::FromEnd); DotIndex != INDEX_NONE)
                 {
+                    FontPackagePath.LeftInline(DotIndex);
+                }
+                if (FontPackagePath != UWidget::GetDefaultFontName())
+                {
+                    // Reverse-lookup non-default fonts through FontFamilyMap (value = asset path -> key = Figma family name).
+                    const FString FullFontPath = FontObject->GetPathName();
                     for (const TPair<FString, FString>& Pair : GetDefault<UXmlUISettings>()->FontFamilyMap)
                     {
-                        if (Pair.Value == FontObject->GetPathName())
+                        if (Pair.Value == FullFontPath || Pair.Value == FontPackagePath)
                         {
                             AppendAttr(Out, TEXT("FontFamily"), Pair.Key);
                             break;

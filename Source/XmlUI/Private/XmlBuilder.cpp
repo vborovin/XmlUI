@@ -269,9 +269,9 @@ static void ApplyMappedText(FString& OutError, UWidget* InWidget, const FXmlNode
     }
 }
 
-// Best-effort reflection: applies the Text attribute set to any widget exposing
-// matching UPROPERTYs (custom text blocks); missing properties are skipped.
-static void ApplyReflectedTextAttrs(FString& OutError, UWidget* InWidget, const FXmlNodeDesc& InNode)
+// Best-effort reflection for UserWidget nodes: applies the text attribute set when the
+// referenced class exposes matching UPROPERTYs; missing properties are skipped.
+static void ApplyReflectedTextAttrs(UWidget* InWidget, const FXmlNodeDesc& InNode)
 {
     if (const FString* TextValue = InNode.Attributes.Find(TEXT("Text")))
     {
@@ -959,12 +959,20 @@ UWidget* UXmlBuilder::BuildUserWidgetNode(UWidgetTree* Tree, const FXmlNodeDesc&
         OutError += FString::Printf(TEXT("XmlUI: UserWidget '%s' failed to construct (provide a valid WBP attribute or a WidgetClassMap mapping)\n"), *Node.Name);
         return nullptr;
     }
+    // NamedSlotsWithID is editor-only data; ask the runtime interface for instance-fillable slot names instead.
+    TArray<FName> AvailableSlots;
+    UserWidget->GetSlotNames(AvailableSlots);
     for (const FXmlNodeDesc& ChildNode : Node.Children)
     {
         const FString* SlotName = ChildNode.Attributes.Find(TEXT("SlotName"));
         if (!SlotName || SlotName->IsEmpty())
         {
             OutError += FString::Printf(TEXT("XmlUI: UserWidget '%s' child '%s' has no SlotName, ignored\n"), *Node.Name, *ChildNode.Name);
+            continue;
+        }
+        if (!AvailableSlots.Contains(FName(**SlotName)))
+        {
+            OutError += FString::Printf(TEXT("XmlUI: UserWidget '%s' child '%s' names unknown SlotName '%s' (not an exposed named slot), ignored\n"), *Node.Name, *ChildNode.Name, **SlotName);
             continue;
         }
         UWidget* ChildWidget = BuildNodeInternal(Tree, ChildNode, OutError, InWidgetClassMap);
@@ -980,7 +988,7 @@ UWidget* UXmlBuilder::BuildUserWidgetNode(UWidgetTree* Tree, const FXmlNodeDesc&
 
     if (Widget)
     {
-        ApplyReflectedTextAttrs(OutError, UserWidget, Node);
+        ApplyReflectedTextAttrs(UserWidget, Node);
         ApplyCommonAttributes(Widget, Node);
     }
 

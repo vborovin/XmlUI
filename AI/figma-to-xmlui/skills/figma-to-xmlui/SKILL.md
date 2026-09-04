@@ -69,7 +69,7 @@ When intent is ambiguous, prefer the smallest useful structure and list the omis
 
 - Use only `XmlUI`, `Vertical`, `Horizontal`, `Overlay`, `SizeBox`, `ScaleBox`, `Text`, `Image`, `Button`, `Spacer`, `ProgressBar`, `WrapBox`, `Grid`, `ScrollBox`, `Canvas`, `MenuAnchor`, `Border`, and `UserWidget`.
 - `UserWidget` nodes accept `Text`, `Color`, `ArtFontSize`, and `Justification` when the referenced widget class exposes matching UPROPERTYs (best-effort reflection; see xmlui-dsl.md).
-- Nested WBP placeholders accept slot children via `SlotName="..."` on each child (inserted into the nested widget's UNamedSlot; see xmlui-dsl.md).
+- Nested WBP placeholders accept slot children via `SlotName="..."` on each child (inserted into the nested widget's UNamedSlot; see xmlui-dsl.md). Only reference Widget Blueprints with slot children — native C++ `UUserWidget` subclasses export no slot children — and keep slot names unique per node.
 - The default mapping of layout containers (such as `Vertical` → `UVerticalBox`) is decided by the host's `WidgetClassMap` configuration; the Skill does not need to care about concrete classes when generating XML.
 - Prefer Figma Auto Layout hierarchy over absolute coordinates.
 - Use `Overlay` for genuine stacking or limited local positioning, not as a substitute for every layout.

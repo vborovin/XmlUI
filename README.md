@@ -148,7 +148,7 @@ Baked Widget Blueprint assets carry the package metadata `XmlUI.SourceDsl`, `Xml
 - Colors accept `#RRGGBB`, `#AARRGGBB`, and `(R,G,B,A)`; when alpha is involved, prefer `#AARRGGBB`.
 - Resource brushes require an actual object path, e.g. `Texture2D→/Game/UI/T_Icon.T_Icon`. Until the asset is imported, use a solid-color placeholder.
 - `ArtFontSize` uses the plugin's built-in Figma-size lookup; projects that do not adopt this mapping should convert sizes themselves and use `FontSize` instead.
-- `FontFamily` is a generic font-family identifier resolved through the host-configured `XmlUISettings.FontFamilyMap`, whose keys are host-defined; the Figma workflow just conventionally uses Figma font family names (for example `PingFang SC`) as keys. Unmapped or unloadable names fall back to the engine default font with a warning.
+- `FontFamily` is a generic font-family identifier resolved through the host-configured `XmlUISettings.FontFamilyMap`, whose keys are host-defined; the Figma workflow just conventionally uses Figma font family names (for example `PingFang SC`) as keys. Unmapped or unloadable names fall back to the engine default font with a warning. Map values may be the full object path (`/Game/Fonts/PingFang.PingFang`) or the shorter package path; prefer the full form for exact export round-trips.
 - `Canvas`, `MenuAnchor`, and `Border` attributes are listed in the tag behavior above; the DSL Reference documents the full set.
 
 See the [XmlUI DSL Reference](./AI/figma-to-xmlui/skills/figma-to-xmlui/references/xmlui-dsl.md) for the full behavior and edge cases.

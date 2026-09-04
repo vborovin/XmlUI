@@ -39,22 +39,28 @@ inline int GetXmlFontSizeByArtFontSize(int ArtFontSize)
 // Falls back to the engine default widget font with a warning when unmapped or unloadable.
 inline UFont* GetXmlFontByFamily(const FString& FontFamily)
 {
-    UFont* DefaultFont = LoadObject<UFont>(nullptr, *UWidget::GetDefaultFontName());
+    // Static caches: default font loads once and each family resolves once (restart to pick up FontFamilyMap edits).
+    static UFont* DefaultFont = LoadObject<UFont>(nullptr, *UWidget::GetDefaultFontName());
     if (FontFamily.IsEmpty())
     {
         return DefaultFont;
     }
+    static TMap<FString, UFont*> FamilyToFont; // nullptr entries keep warnings one-shot
+    if (UFont* const* Cached = FamilyToFont.Find(FontFamily))
+    {
+        return *Cached ? *Cached : DefaultFont;
+    }
     const UXmlUISettings* Settings = GetDefault<UXmlUISettings>();
     const FString* FontPath = Settings->FontFamilyMap.Find(FontFamily);
+    UFont* Resolved = nullptr;
     if (!FontPath || FontPath->IsEmpty())
     {
         UE_LOG(LogTemp, Warning, TEXT("XmlUI: Font family '%s' is not mapped in XmlUISettings.FontFamilyMap; using the default widget font"), *FontFamily);
-        return DefaultFont;
     }
-    if (UFont* Font = LoadObject<UFont>(nullptr, **FontPath))
+    else if (!(Resolved = LoadObject<UFont>(nullptr, **FontPath)))
     {
-        return Font;
+        UE_LOG(LogTemp, Warning, TEXT("XmlUI: Failed to load font '%s' for family '%s'; using the default widget font"), **FontPath, *FontFamily);
     }
-    UE_LOG(LogTemp, Warning, TEXT("XmlUI: Failed to load font '%s' for family '%s'; using the default widget font"), **FontPath, *FontFamily);
-    return DefaultFont;
+    FamilyToFont.Add(FontFamily, Resolved);
+    return Resolved ? Resolved : DefaultFont;
 }
