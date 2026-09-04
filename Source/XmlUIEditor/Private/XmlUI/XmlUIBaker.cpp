@@ -230,6 +230,7 @@ UWidgetBlueprint* FXmlUIBaker::BakeDslToWidgetBlueprint(const FString& DslFilePa
     {
         BP->MarkAsGarbage();
         UE_LOG(LogTemp, Error, TEXT("XmlUI: Blueprint compilation failed for %s (e.g. missing/incompatible BindWidget slots); asset was NOT saved"), *BP->GetName());
+        OutError = FString::Printf(TEXT("XmlUI: Blueprint compilation failed for %s (missing/incompatible BindWidget slots); see Output Log for details"), *BP->GetName());
         return nullptr;
     }
 
