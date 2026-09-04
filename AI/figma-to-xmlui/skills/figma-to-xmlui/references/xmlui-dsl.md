@@ -29,7 +29,7 @@ Treat this file as the syntax source of truth. The parser and builder are permis
 | `Canvas` | `UCanvasPanel` | many | Absolute-positioning container; child slots use `Position`/`Size`/`Anchors`/`Alignment`/`ZOrder`/`AutoSize` |
 | `MenuAnchor` | `UMenuAnchor` | zero or one | Popup anchor; `Menu` (class path or asset path) selects the popup widget class; extra children are ignored |
 | `Border` | `UBorder` | zero or one | Single-child background; `BrushColor` (color) and `Padding` (margin); extra children are ignored |
-| `UserWidget` | `UUserWidget` | none | Nested Widget Blueprint reference; `WBP` (class path or asset path) selects the referenced widget class; children are ignored with a diagnostic |
+| `UserWidget` | `UUserWidget` | slot children | Nested Widget Blueprint reference; `WBP` (class path or asset path) selects the referenced widget class; children with a `SlotName` attribute are inserted into the nested widget's `UNamedSlot` of that name; children without `SlotName` are ignored with a diagnostic |
 
 There is no `Input`, `Slider`, `ListView`, or animation tag. An unknown child tag is skipped. An unknown root tag prevents a usable root from being built.
 
@@ -183,8 +183,13 @@ A single-child container; extra children are ignored. The child's slot supports 
 | Attribute | Type | Notes |
 |---|---|---|
 | `WBP` | class path or asset path | Optional. A `/Script/<Module>.<Class>` or `_C`-suffixed path is loaded as a class directly; any other path is loaded as a Widget Blueprint asset and its generated class is used. Omit to construct a plain user widget placeholder |
+| `Text` | string | Applied only when the referenced class exposes an `FText` UPROPERTY named `Text` |
+| `Color` | color | Maps to an `FSlateColor` UPROPERTY named `TextColor` on the referenced class |
+| `ArtFontSize` | int | Positive values only; requires an `int32` UPROPERTY named `ArtFontSize` |
+| `Justification` | `Left` / `Center` / `Right` | Case-insensitive; requires a `TEnumAsByte<ETextJustify::Type>` UPROPERTY named `Justification` |
+| `SlotName` | string | Child-level: on each direct child of the node, names the `UNamedSlot` on the referenced widget the child is inserted into; not an attribute of the `UserWidget` node itself |
 
-A nested Widget Blueprint reference with no children; extra children are ignored with a diagnostic.
+A nested Widget Blueprint reference. Each direct child must carry a `SlotName="..."` attribute; at build time the child is inserted into the referenced widget's `UNamedSlot` with that exact name via `UUserWidget::SetContentForSlot` plus editor-time `AssignGUIDToBindings` (the same mechanism the UMG designer uses). An unknown slot name fails the insertion for that child only; a child without `SlotName` is ignored with a diagnostic. Slot-injected widgets remain in the outer widget tree, so C++ `BindWidget` resolution by name is unaffected. The exporter round-trips slot content back into `SlotName` children. These four attributes are applied by best-effort reflection after the widget is constructed — a class that lacks the matching UPROPERTY silently skips that attribute; the exporter round-trips them and omits values equal to the class default (`ArtFontSize` is also omitted when `-1`).
 
 ## Slot Attributes
 

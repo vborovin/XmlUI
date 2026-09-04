@@ -128,7 +128,7 @@ XmlUI.BakeDsl File=<xml路径>
 | 绝对定位容器 | `Canvas` | 构建 `UCanvasPanel`；子槽使用 `Position`/`Size`/`Anchors`/`Alignment`/`ZOrder`/`AutoSize` |
 | 弹出菜单锚点 | `MenuAnchor` | 构建 `UMenuAnchor`；`Menu` 引用弹出 Widget Blueprint；最多一个子节点 |
 | 背景边框 | `Border` | 构建 `UBorder`，支持 `BrushColor`/`Padding`；最多一个子节点 |
-| 嵌套控件引用 | `UserWidget` | 通过 `WBP` 引用另一个 Widget Blueprint |
+| 嵌套控件引用 | `UserWidget` | 通过 `WBP` 引用另一个 Widget Blueprint；带 `SlotName` 的子节点会插入到嵌套控件的命名槽中 |
 | 元素 | `Text`, `Image`, `Button` | 文本、图像/色块、按钮 |
 | 辅助元素 | `Spacer`, `ProgressBar` | 间距与从左到右的进度条 |
 
@@ -142,7 +142,7 @@ XmlUI.BakeDsl File=<xml路径>
 | 按钮 | `Text`, `ButtonColor`, `TextColor`, `FontFamily`, `Padding` |
 | 进度条 | `Percent`, `FillColor` |
 | 滚动容器 | `Orientation` |
-| 嵌套控件 | `WBP` |
+| 嵌套控件 | `WBP`, `Text`, `Color`, `ArtFontSize`, `Justification` |
 | 线性槽 | `Padding`, `HAlign`, `VAlign`, `SizeParam` |
 
 - 颜色支持 `#RRGGBB`、`#AARRGGBB` 与 `(R,G,B,A)` 三种写法；需要透明度时建议统一使用 `#AARRGGBB`。

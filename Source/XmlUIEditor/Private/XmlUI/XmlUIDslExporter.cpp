@@ -9,6 +9,7 @@
 #include "XmlWidgets/XmlWidget.h"
 
 #include "Blueprint/UserWidget.h"
+#include "Blueprint/WidgetBlueprintGeneratedClass.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
 #include "Components/BorderSlot.h"
@@ -50,6 +51,7 @@
 #include "Types/SlateEnums.h"
 #include "ToolMenus.h"
 #include "UObject/UObjectGlobals.h"
+#include "UObject/TextProperty.h"
 #include "UObject/UnrealType.h"
 #include "WidgetBlueprint.h"
 
@@ -578,6 +580,41 @@ namespace
             return;
         }
         AppendAttr(Out, TEXT("WBP"), ClassPathToAssetPath(WidgetClass->GetPathName()));
+        const UUserWidget* Default = GetDefault<UUserWidget>(UserWidget->GetClass());
+        if (const FTextProperty* TextProp = FindFProperty<FTextProperty>(UserWidget->GetClass(), TEXT("Text")))
+        {
+            const FText Text = TextProp->GetPropertyValue_InContainer(UserWidget);
+            const FText DefaultText = TextProp->GetPropertyValue_InContainer(Default);
+            if (!Text.IsEmpty() && !Text.EqualTo(DefaultText))
+            {
+                AppendAttr(Out, TEXT("Text"), Text.ToString());
+            }
+        }
+        if (const FStructProperty* ColorProp = FindFProperty<FStructProperty>(UserWidget->GetClass(), TEXT("TextColor")))
+        {
+            if (ColorProp->Struct->GetFName() == TEXT("SlateColor"))
+            {
+                const FSlateColor* Color = ColorProp->ContainerPtrToValuePtr<FSlateColor>(UserWidget);
+                const FSlateColor* DefaultColor = ColorProp->ContainerPtrToValuePtr<FSlateColor>(Default);
+                if (*Color != *DefaultColor)
+                {
+                    AppendAttr(Out, TEXT("Color"), ColorToHex(Color->GetSpecifiedColor()));
+                }
+            }
+        }
+        if (const FIntProperty* FontProp = FindFProperty<FIntProperty>(UserWidget->GetClass(), TEXT("ArtFontSize")))
+        {
+            const int32 ArtFontSize = FontProp->GetPropertyValue_InContainer(UserWidget);
+            const int32 DefaultArtFontSize = FontProp->GetPropertyValue_InContainer(Default);
+            if (ArtFontSize != -1 && ArtFontSize != DefaultArtFontSize)
+            {
+                AppendAttr(Out, TEXT("ArtFontSize"), FString::FromInt(ArtFontSize));
+            }
+        }
+        if (GetTextJustification(UserWidget) != GetTextJustification(Default))
+        {
+            AppendAttr(Out, TEXT("Justification"), JustificationToString(GetTextJustification(UserWidget)));
+        }
     }
 
     void AppendMenuAnchorAttrs(TArray<FString>& Out, const UWidget* Widget)
@@ -768,7 +805,7 @@ namespace
     }
 
     // --- serializer (ExportNode) ---
-    FString ExportNode(const UWidget* InWidget, bool bIsRoot, FExportContext& InCtx, const FString& InIndent)
+    FString ExportNode(const UWidget* InWidget, bool bIsRoot, FExportContext& InCtx, const FString& InIndent, const FString& InExtraAttr = FString())
     {
         FString Tag;
         if (!ResolveTag(InWidget, bIsRoot, InCtx, Tag))
@@ -812,6 +849,7 @@ namespace
         }
 
         TArray<const UWidget*> Children;
+        TMap<const UWidget*, FString> ChildSlotNames;
         if (const UPanelWidget* Panel = Cast<UPanelWidget>(InWidget))
         {
             const int32 NumChildren = Panel->GetChildrenCount();
@@ -827,6 +865,27 @@ namespace
                 Children.Add(Content);
             }
         }
+        else if (const UUserWidget* UserWidget = Cast<UUserWidget>(InWidget))
+        {
+            // Named-slot content is held by the instance's bindings outside the outer tree hierarchy, so it is
+            // unreachable from the root panel walk; emit it here with the slot name.
+            if (const UWidgetBlueprintGeneratedClass* BGClass = Cast<UWidgetBlueprintGeneratedClass>(UserWidget->GetClass()))
+            {
+                for (const TPair<FName, FGuid>& NamedSlot : BGClass->NamedSlotsWithID)
+                {
+                    if (UWidget* Content = UserWidget->GetContentForSlot(NamedSlot.Key))
+                    {
+                        Children.Add(Content);
+                        ChildSlotNames.Add(Content, NamedSlot.Key.ToString());
+                    }
+                }
+            }
+        }
+
+        if (!InExtraAttr.IsEmpty())
+        {
+            Attrs.Add(InExtraAttr);
+        }
 
         const FString AttrText = FString::Join(Attrs, TEXT(" "));
         const FString OpenTag = TEXT("<") + Tag + (Attrs.Num() > 0 ? TEXT(" ") + AttrText : FString());
@@ -840,7 +899,9 @@ namespace
         const FString ChildIndent = InIndent + TEXT("  ");
         for (const UWidget* Child : Children)
         {
-            const FString ChildNode = ExportNode(Child, false, InCtx, ChildIndent);
+            const FString* SlotName = ChildSlotNames.Find(Child);
+            const FString ExtraAttr = SlotName ? FString::Printf(TEXT("SlotName=\"%s\""), *EscapeXml(*SlotName)) : FString();
+            const FString ChildNode = ExportNode(Child, false, InCtx, ChildIndent, ExtraAttr);
             if (!ChildNode.IsEmpty())
             {
                 Result += ChildNode + TEXT("\n");

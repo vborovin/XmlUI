@@ -128,7 +128,7 @@ Baked Widget Blueprint assets carry the package metadata `XmlUI.SourceDsl`, `Xml
 | Absolute-position container | `Canvas` | Builds `UCanvasPanel`; child slots use `Position`/`Size`/`Anchors`/`Alignment`/`ZOrder`/`AutoSize` |
 | Popup menu anchor | `MenuAnchor` | Builds `UMenuAnchor`; `Menu` references the popup Widget Blueprint; at most one child |
 | Background border | `Border` | Builds `UBorder` with `BrushColor`/`Padding`; at most one child |
-| Nested widget reference | `UserWidget` | References another Widget Blueprint via `WBP` |
+| Nested widget reference | `UserWidget` | References another Widget Blueprint via `WBP`; children with `SlotName` are inserted into the nested widget's named slots |
 | Elements | `Text`, `Image`, `Button` | Text, image/color block, and button |
 | Helpers | `Spacer`, `ProgressBar` | Spacing and left-to-right progress |
 
@@ -142,7 +142,7 @@ Baked Widget Blueprint assets carry the package metadata `XmlUI.SourceDsl`, `Xml
 | Button | `Text`, `ButtonColor`, `TextColor`, `FontFamily`, `Padding` |
 | Progress | `Percent`, `FillColor` |
 | Scroll box | `Orientation` |
-| Nested widget | `WBP` |
+| Nested widget | `WBP`, `Text`, `Color`, `ArtFontSize`, `Justification` |
 | Linear slots | `Padding`, `HAlign`, `VAlign`, `SizeParam` |
 
 - Colors accept `#RRGGBB`, `#AARRGGBB`, and `(R,G,B,A)`; when alpha is involved, prefer `#AARRGGBB`.

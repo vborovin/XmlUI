@@ -42,6 +42,7 @@
 #include "Styling/SlateBrush.h"
 #include "Styling/SlateTypes.h"
 #include "UObject/UObjectGlobals.h"
+#include "UObject/TextProperty.h"
 #include "UObject/UnrealType.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(XmlBuilder)
@@ -265,6 +266,55 @@ static void ApplyMappedText(FString& OutError, UWidget* InWidget, const FXmlNode
         // FontFamily without FontSize must keep the mapped widget's configured default size, not force 16.
         const int32 EffectiveFontSize = bHasFontSize ? FontSize : TextBlock->GetFont().Size;
         TextBlock->SetFont(FSlateFontInfo(GetXmlFontByFamily(FontFamily), EffectiveFontSize));
+    }
+}
+
+// Best-effort reflection: applies the Text attribute set to any widget exposing
+// matching UPROPERTYs (custom text blocks); missing properties are skipped.
+static void ApplyReflectedTextAttrs(FString& OutError, UWidget* InWidget, const FXmlNodeDesc& InNode)
+{
+    if (const FString* TextValue = InNode.Attributes.Find(TEXT("Text")))
+    {
+        if (FTextProperty* TextProp = FindFProperty<FTextProperty>(InWidget->GetClass(), TEXT("Text")))
+        {
+            TextProp->SetPropertyValue_InContainer(InWidget, FText::FromString(*TextValue));
+        }
+    }
+    if (const FString* ColorValue = InNode.Attributes.Find(TEXT("Color")))
+    {
+        FLinearColor Color;
+        if (UXmlDslParser::ParseColor(*ColorValue, Color))
+        {
+            if (FStructProperty* ColorProp = FindFProperty<FStructProperty>(InWidget->GetClass(), TEXT("TextColor")))
+            {
+                if (ColorProp->Struct->GetFName() == TEXT("SlateColor"))
+                {
+                    *ColorProp->ContainerPtrToValuePtr<FSlateColor>(InWidget) = FSlateColor(Color);
+                }
+            }
+        }
+    }
+    if (const FString* ArtFontSizeValue = InNode.Attributes.Find(TEXT("ArtFontSize")))
+    {
+        int32 ArtFontSize = -1;
+        if (UXmlDslParser::ParseInt(*ArtFontSizeValue, ArtFontSize) && ArtFontSize > 0)
+        {
+            if (FIntProperty* FontProp = FindFProperty<FIntProperty>(InWidget->GetClass(), TEXT("ArtFontSize")))
+            {
+                FontProp->SetPropertyValue_InContainer(InWidget, ArtFontSize);
+            }
+        }
+    }
+    if (const FString* JustValue = InNode.Attributes.Find(TEXT("Justification")))
+    {
+        ETextJustify::Type Just;
+        if (UXmlDslParser::ParseJustification(*JustValue, Just))
+        {
+            if (FByteProperty* JustProp = FindFProperty<FByteProperty>(InWidget->GetClass(), TEXT("Justification")))
+            {
+                JustProp->SetPropertyValue_InContainer(InWidget, static_cast<uint8>(Just));
+            }
+        }
     }
 }
 
@@ -909,14 +959,28 @@ UWidget* UXmlBuilder::BuildUserWidgetNode(UWidgetTree* Tree, const FXmlNodeDesc&
         OutError += FString::Printf(TEXT("XmlUI: UserWidget '%s' failed to construct (provide a valid WBP attribute or a WidgetClassMap mapping)\n"), *Node.Name);
         return nullptr;
     }
-    if (Node.Children.Num() > 0)
+    for (const FXmlNodeDesc& ChildNode : Node.Children)
     {
-        OutError += FString::Printf(TEXT("XmlUI: UserWidget '%s' has children, ignoring them (nested WBP references cannot have children)\n"), *Node.Name);
+        const FString* SlotName = ChildNode.Attributes.Find(TEXT("SlotName"));
+        if (!SlotName || SlotName->IsEmpty())
+        {
+            OutError += FString::Printf(TEXT("XmlUI: UserWidget '%s' child '%s' has no SlotName, ignored\n"), *Node.Name, *ChildNode.Name);
+            continue;
+        }
+        UWidget* ChildWidget = BuildNodeInternal(Tree, ChildNode, OutError, InWidgetClassMap);
+        if (ChildWidget)
+        {
+            UserWidget->SetContentForSlot(FName(**SlotName), ChildWidget);
+        }
     }
+#if WITH_EDITOR
+    UserWidget->AssignGUIDToBindings();
+#endif
     Widget = UserWidget;
 
     if (Widget)
     {
+        ApplyReflectedTextAttrs(OutError, UserWidget, Node);
         ApplyCommonAttributes(Widget, Node);
     }
 
