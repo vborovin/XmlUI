@@ -165,7 +165,7 @@ LevelText->SetXmlText(FText::FromString(FString::Printf(TEXT("LV.%02d"), Level))
 
 ## ParentClass, Dependency, and Build Order
 
-The XML root references the generated class without the Unreal `U` prefix. In the sample host this is:
+The XML root references the generated class without the Unreal `U` prefix — the C++ class `U<ClassName>` maps to `/Script/<Module>.<ClassName>` (the leading `U` is dropped; UClass::GetPathName() and the XmlUI exporter never emit it). A doubled prefix such as `/Script/SampleGame.USampleWidget` fails the bake with "Failed to load ParentClass '...'; check the path" even though the class is fully registered — the path string, not the class, is wrong. In the sample host this is:
 
 ```xml
 <XmlUI Name="ProfileCard" ParentClass="/Script/SampleGame.ProfileCardWidget"/>

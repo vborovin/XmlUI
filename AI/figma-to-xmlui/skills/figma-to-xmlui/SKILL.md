@@ -101,7 +101,7 @@ Use this document shape; the generation note belongs inside the root because the
 - Follow the host font policy: when the host configures `XmlUISettings.FontFamilyMap`, write `FontFamily="Figma font name"` on `Text`/`Button` nodes and let the mapping resolve the font asset; use `ArtFontSize` only when the project adopts XmlUI's built-in art-size lookup; otherwise convert with the project's policy and use `FontSize`. Use `#AARRGGBB` for colors with alpha.
 - Escape XML attribute text, especially `&`, `<`, `>`, and quotes.
 - Do not put root spacing in root slot attributes. Wrap the content and apply spacing to that child.
-- Add root `ParentClass` only after resolving a real, loadable host class; otherwise let the baker use `BaseWidgetClass`.
+- Add root `ParentClass` only after resolving a real, loadable host class; otherwise let the baker use `BaseWidgetClass`. Writing it means writing the class name WITHOUT the C++ `U` prefix: a class `USampleWidget` in C++ is `/Script/SampleGame.SampleWidget` in XML. `UClass::GetPathName()` omits the `U` and the plugin exporter writes it that way; a U-prefixed path fails the bake with "Failed to load ParentClass '...'; check the path (format /Script/<Module>.<ClassName>)". When unsure, check an existing exported WBP's `ParentClass` line.
 - Do not include Markdown fences or prose in the `.xml` file.
 
 ### 7. Write the C++ Contract

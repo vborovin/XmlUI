@@ -320,7 +320,7 @@ Use a simple approximation only when it preserves useful structure, and state th
 - The baker validates names but does not validate the root tag, known attributes, or successfully parsed attribute values.
 - Unknown attributes and malformed values are usually ignored.
 - Unknown child tags are skipped, potentially producing an incomplete but successfully saved Widget Blueprint.
-- `ParentClass` on the root overrides `BaseWidgetClass` and must use `/Script/<Module>.<ClassNameWithoutU>`.
+- `ParentClass` on the root overrides `BaseWidgetClass` and must use `/Script/<Module>.<ClassNameWithoutU>`. NEVER include the C++ `U` prefix: the class `USampleWidget` is `/Script/SampleGame.SampleWidget` (UClass::GetPathName() and the plugin exporter omit the `U`). A U-prefixed value makes the baker fail with "Failed to load ParentClass '...'; check the path (format /Script/<Module>.<ClassName>)" — the class itself is fine, the string is wrong.
 - Output is `<BakedBlueprintOutputPath>/WBP_<sanitized complete XML basename>`. The baker replaces spaces, hyphens, and dots with underscores, so `XmlUI_ProfileCard.xml` produces `WBP_XmlUI_ProfileCard`.
 - Existing assets are not overwritten.
 
