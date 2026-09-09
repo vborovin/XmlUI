@@ -230,7 +230,7 @@ UWidgetBlueprint* FXmlUIBaker::BakeDslToWidgetBlueprint(const FString& DslFilePa
     {
         BP->MarkAsGarbage();
         UE_LOG(LogTemp, Error, TEXT("XmlUI: Blueprint compilation failed for %s (e.g. missing/incompatible BindWidget slots); asset was NOT saved"), *BP->GetName());
-        OutError = FString::Printf(TEXT("XmlUI: Blueprint compilation failed for %s (missing/incompatible BindWidget slots); see Output Log for details"), *BP->GetName());
+        OutError += FString::Printf(TEXT("XmlUI: Blueprint compilation failed for %s (missing/incompatible BindWidget slots); see Output Log for details\n"), *AssetName);
         return nullptr;
     }
 
@@ -244,7 +244,7 @@ UWidgetBlueprint* FXmlUIBaker::BakeDslToWidgetBlueprint(const FString& DslFilePa
     const TArray<UPackage*> Packages{ Pkg };
     if (!UEditorLoadingAndSavingUtils::SavePackages(Packages, false))
     {
-        OutError = FString::Printf(TEXT("XmlUI: Failed to save asset: %s"), *OutAssetPath);
+        OutError += FString::Printf(TEXT("XmlUI: Failed to save asset: %s"), *OutAssetPath);
         return nullptr;
     }
 
