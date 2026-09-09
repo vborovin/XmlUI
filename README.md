@@ -12,6 +12,7 @@
   <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-8b5cf6?style=flat-square" />
   <img alt="Unreal Engine" src="https://img.shields.io/badge/Unreal%20Engine-5.5-0E1128?style=flat-square" />
   <img alt="License" src="https://img.shields.io/badge/license-MPL--2.0-orange?style=flat-square" />
+  <a href="https://linux.do"><img alt="LINUX DO" src="https://img.shields.io/badge/LINUX%20DO-community-0d9488?style=flat-square" /></a>
 </p>
 
 <p align="center">
@@ -248,3 +249,7 @@ XmlUI/
 - `Button`, `SizeBox`, and `ScaleBox` use at most one child; extra children are ignored.
 
 </details>
+
+## Acknowledgments
+
+Thanks to the [LINUX DO](https://linux.do) community for its support and recognition, and special thanks to community member [@muchenhen](https://linux.do/u/muchenhen) for providing the original idea.
