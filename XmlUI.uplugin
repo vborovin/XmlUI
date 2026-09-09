@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
-	"Version": 2,
-	"VersionName": "0.2.0",
+	"Version": 3,
+	"VersionName": "1.0.0",
 	"FriendlyName": "XmlUI",
 	"Description": "Cross-project declarative UMG construction with XML DSL parsing, runtime building, and editor baking",
 	"Category": "UserInterface",

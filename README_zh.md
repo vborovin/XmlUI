@@ -9,7 +9,7 @@
 <p align="center">一份 XML DSL，生成 Widget Blueprint 与对应的 C++ 代码结构。</p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.2.0-8b5cf6?style=flat-square" />
+  <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-8b5cf6?style=flat-square" />
   <img alt="Unreal Engine" src="https://img.shields.io/badge/Unreal%20Engine-5.5-0E1128?style=flat-square" />
   <img alt="License" src="https://img.shields.io/badge/license-MPL--2.0-orange?style=flat-square" />
 </p>
