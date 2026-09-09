@@ -952,7 +952,17 @@ UWidget* UXmlBuilder::BuildUserWidgetNode(UWidgetTree* Tree, const FXmlNodeDesc&
     }
     else
     {
-        UserWidget = Tree->ConstructWidget<UUserWidget>(WidgetClass, FName(*Node.Name));
+        // Asset trees (baking) need designer-template semantics: an uninitialized instance so
+        // SetContentForSlot records a NamedSlotBinding instead of resolving a live slot widget.
+        // Runtime trees keep eager Initialize so the nested widget renders. UWidgetBlueprint is
+        // editor-only (Blutility); detect the asset tree by outer class name to avoid the module dependency.
+        bool bBuildingAssetTree = false;
+#if WITH_EDITOR
+        bBuildingAssetTree = Tree->GetOuter() && Tree->GetOuter()->GetClass()->GetName() == TEXT("WidgetBlueprint");
+#endif
+        UserWidget = bBuildingAssetTree
+            ? Cast<UUserWidget>(Tree->ConstructWidget<UWidget>(WidgetClass, FName(*Node.Name)))
+            : Tree->ConstructWidget<UUserWidget>(WidgetClass, FName(*Node.Name));
     }
     if (!UserWidget)
     {
@@ -978,7 +988,12 @@ UWidget* UXmlBuilder::BuildUserWidgetNode(UWidgetTree* Tree, const FXmlNodeDesc&
         UWidget* ChildWidget = BuildNodeInternal(Tree, ChildNode, OutError, InWidgetClassMap);
         if (ChildWidget)
         {
-            UserWidget->SetContentForSlot(FName(**SlotName), ChildWidget);
+            const FName SlotFName(**SlotName);
+            UserWidget->SetContentForSlot(SlotFName, ChildWidget);
+            if (UserWidget->GetContentForSlot(SlotFName) != ChildWidget)
+            {
+                OutError += FString::Printf(TEXT("XmlUI: UserWidget '%s' slot '%s' rejected child '%s' (slot not present on the constructed instance)\n"), *Node.Name, **SlotName, *ChildNode.Name);
+            }
         }
     }
 #if WITH_EDITOR
