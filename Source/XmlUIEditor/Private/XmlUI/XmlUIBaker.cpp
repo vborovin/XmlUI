@@ -4,6 +4,7 @@
 #include "DesktopPlatformModule.h"
 #include "XmlBuilder.h"
 #include "XmlDslParser.h"
+#include "XmlDslValidator.h"
 #include "XmlUI/XmlUIDslExporter.h"
 #include "XmlUISettings.h"
 #include "Kismet2/KismetEditorUtilities.h"
@@ -164,6 +165,12 @@ UWidgetBlueprint* FXmlUIBaker::BakeDslToWidgetBlueprint(const FString& DslFilePa
 
     FXmlNodeDesc RootDesc;
     if (!UXmlDslParser::ParseXmlString(XmlContent, RootDesc, OutError))
+    {
+        return nullptr;
+    }
+
+    if (GetDefault<UXmlUISettings>()->bStrictValidation
+        && !FXmlDslValidator::ValidateDocument(RootDesc, OutError))
     {
         return nullptr;
     }

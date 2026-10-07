@@ -23,6 +23,10 @@ public:
     UPROPERTY(config, EditAnywhere, Category = "XmlUI")
     FString BakedBlueprintOutputPath = TEXT("/Game/UI");
 
+    /** Fail runtime builds and editor bakes on unknown DSL tags/attributes instead of silently skipping them. */
+    UPROPERTY(config, EditAnywhere, Category = "XmlUI")
+    bool bStrictValidation = true;
+
     /** Optional: DSL tag -> widget class path mapping (e.g. "Text" -> "/Script/SampleGame.SampleTextBlock").
         Passed to UXmlBuilder::BuildNode at bake time; tags without a mapping fall back to the plugin defaults. Project-agnostic: host adaptation is fully driven by this config. */
     UPROPERTY(config, EditAnywhere, Category = "XmlUI")

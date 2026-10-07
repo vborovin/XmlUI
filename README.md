@@ -185,6 +185,7 @@ Plugin defaults live in `Config/DefaultXmlUI.ini`; a host project can override t
 BaseWidgetClass=/Script/UMG.UserWidget
 XmlRootPath=
 BakedBlueprintOutputPath=/Game/UI
+bStrictValidation=True
 ```
 
 | Key | Purpose | Default |
@@ -192,6 +193,7 @@ BakedBlueprintOutputPath=/Game/UI
 | `BaseWidgetClass` | Default parent class for baked Widget Blueprints | `/Script/UMG.UserWidget` |
 | `XmlRootPath` | Initial directory for the XML file picker | Empty; falls back to the project root |
 | `BakedBlueprintOutputPath` | Output directory for Widget Blueprints | `/Game/UI` |
+| `bStrictValidation` | Reject unknown DSL tags/attributes before build/bake | `true` |
 | `WidgetClassMap` | Maps DSL tags to host widget class paths | Empty |
 | `FontFamilyMap` | Maps font-family names (host-defined keys; the Figma workflow conventionally uses Figma font family names) to host font asset paths | Empty |
 
@@ -245,7 +247,7 @@ XmlUI/
 - Every baked node must have a non-empty, legal, globally unique `Name`.
 - Keep XML generation notes inside the `<XmlUI>` root node; a comment before the root can break Unreal's XML parser.
 - The root has no parent slot, so root `Padding`, `HAlign`, `VAlign`, and `SizeParam` have no effect.
-- Unknown tags are skipped and unknown or malformed attributes are generally ignored, so a successful bake does not guarantee a complete layout.
+- With `bStrictValidation=true` (default), unknown tags and attributes fail before build/bake. Known attributes with malformed values are still best-effort for now.
 - `Button`, `SizeBox`, and `ScaleBox` use at most one child; extra children are ignored.
 
 </details>

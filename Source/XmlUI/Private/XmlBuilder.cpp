@@ -35,7 +35,9 @@
 #include "Engine/Texture2D.h"
 #include "XmlWidgets/XmlButton.h"
 #include "XmlDslParser.h"
+#include "XmlDslValidator.h"
 #include "XmlFontSizeUtil.h"
+#include "XmlUISettings.h"
 #include "XmlWidgets/XmlPanel.h"
 #include "XmlWidgets/XmlWidget.h"
 #include "Misc/FileHelper.h"
@@ -59,6 +61,12 @@ UWidget* UXmlBuilder::BuildFromString(UUserWidget* Owner, const FString& XmlCont
 
     FXmlNodeDesc RootDesc;
     if (!UXmlDslParser::ParseXmlString(XmlContent, RootDesc, OutError))
+    {
+        return nullptr;
+    }
+
+    if (GetDefault<UXmlUISettings>()->bStrictValidation
+        && !FXmlDslValidator::ValidateDocument(RootDesc, OutError))
     {
         return nullptr;
     }
