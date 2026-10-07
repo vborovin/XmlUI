@@ -93,7 +93,7 @@ class XMLUI_API UXmlImage : public UXmlWidget
     GENERATED_BODY()
 
 public:
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI", meta=(DisplayThumbnail="true", AllowedClasses="Texture2D,MaterialInterface"))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI", meta=(DisplayThumbnail="true", AllowedClasses="/Script/Engine.Texture2D,/Script/Engine.MaterialInterface"))
     FSlateBrush Brush;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI")
