@@ -71,7 +71,8 @@ UWidget* UXmlBuilder::BuildFromString(UUserWidget* Owner, const FString& XmlCont
         return nullptr;
     }
 
-    UWidget* Root = BuildNode(Owner->WidgetTree, RootDesc, OutError);
+    const UXmlUISettings* Settings = GetDefault<UXmlUISettings>();
+    UWidget* Root = BuildNode(Owner->WidgetTree, RootDesc, OutError, &Settings->WidgetClassMap);
     if (!Root)
     {
         return nullptr;
@@ -368,11 +369,7 @@ static void ApplyMappedButton(FString& OutError, UWidget* InWidget, const FXmlNo
         return;
     }
     Button->SetColorAndOpacity(InButtonColor);
-    // UE 5.5's UButton has no SetContentPadding API (content padding lives in the button style).
-    if (InNode.Attributes.Contains(TEXT("Text")) || InNode.Attributes.Contains(TEXT("TextColor")) || InNode.Attributes.Contains(TEXT("FontFamily")))
-    {
-        OutError += FString::Printf(TEXT("XmlUI: mapped Button '%s': Text/TextColor/FontFamily are not applied to mapped UButton classes (use a child Text node)\n"), *InNode.Name);
-    }
+    // Text shorthand is materialized as an ordinary child Text widget by BuildButtonNode.
 }
 
 static void ApplyMappedProgressBar(FString& OutError, UWidget* InWidget, const FXmlNodeDesc& InNode)
@@ -753,6 +750,30 @@ UWidget* UXmlBuilder::BuildButtonNode(UWidgetTree* Tree, const FXmlNodeDesc& Nod
             if (Node.Children.Num() > 1)
             {
                 OutError += FString::Printf(TEXT("XmlUI: Button '%s' has more than one child, ignoring extras\n"), *Node.Name);
+            }
+        }
+        else if (const FString* TextValue = Node.Attributes.Find(TEXT("Text")))
+        {
+            // Preserve the convenient <Button Text="..."/> shorthand while still baking
+            // a stock UButton: materialize the label as a real Text child in the tree.
+            FXmlNodeDesc LabelNode;
+            LabelNode.Tag = TEXT("Text");
+            LabelNode.Name = Node.Name + TEXT("_Label");
+            LabelNode.Attributes.Add(TEXT("Name"), LabelNode.Name);
+            LabelNode.Attributes.Add(TEXT("Text"), *TextValue);
+            LabelNode.Attributes.Add(TEXT("Justification"), TEXT("Center"));
+            if (const FString* TextColorValue = Node.Attributes.Find(TEXT("TextColor")))
+            {
+                LabelNode.Attributes.Add(TEXT("Color"), *TextColorValue);
+            }
+            if (const FString* FontFamilyValue = Node.Attributes.Find(TEXT("FontFamily")))
+            {
+                LabelNode.Attributes.Add(TEXT("FontFamily"), *FontFamilyValue);
+            }
+
+            if (UWidget* LabelWidget = BuildTextNode(Tree, LabelNode, OutError, InWidgetClassMap))
+            {
+                Button->AddChild(LabelWidget);
             }
         }
 
