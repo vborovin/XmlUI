@@ -11,8 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Native UMG is now the default backend for Vertical/Horizontal/Text/Image/Button/Spacer/ProgressBar; legacy `UXml*` widgets remain available as fallback.
 - Runtime `BuildFromString` now honors the same `WidgetClassMap` as editor baking.
 - Native `UButton` preserves the `Text=\"...\"` shorthand by materializing a real Text child widget.
-- Optional strict DSL validation (enabled by default) that rejects unknown tags and attributes before runtime construction or editor baking.
+- Optional strict DSL validation (enabled by default) that rejects unknown tags, attributes, and malformed typed values before runtime construction or editor baking.
 - Slot-aware attribute validation: child attributes are checked against the actual parent container semantics (Canvas, Grid, Overlay, linear panels, etc.).
+- Typed value validation for ranges, colors, vectors/margins, alignments, booleans, ScaleBox enums, and brush resource-path syntax.
 
 ## [1.0.0] - 2026-09-09
 
