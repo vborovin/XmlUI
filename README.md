@@ -194,10 +194,10 @@ bStrictValidation=True
 | `XmlRootPath` | Initial directory for the XML file picker | Empty; falls back to the project root |
 | `BakedBlueprintOutputPath` | Output directory for Widget Blueprints | `/Game/UI` |
 | `bStrictValidation` | Reject unknown DSL tags/attributes before build/bake | `true` |
-| `WidgetClassMap` | Maps DSL tags to host widget class paths | Empty |
+| `WidgetClassMap` | Maps DSL tags to host widget class paths | Native UMG defaults for Vertical/Horizontal/Text/Image/Button/Spacer/ProgressBar |
 | `FontFamilyMap` | Maps font-family names (host-defined keys; the Figma workflow conventionally uses Figma font family names) to host font asset paths | Empty |
 
-A host project can map any DSL tag to its own widget class through `XmlUISettings.WidgetClassMap` (for example `Text` → `USampleTextBlock`); the plugin itself stays project-independent.
+A host project can map any DSL tag to its own widget class through `XmlUISettings.WidgetClassMap` (for example `Text` → `USampleTextBlock`). Native UMG classes are used by default for the basic linear panels and leaf controls; the legacy `UXml*` implementations remain available as fallback/compatibility classes. The same mapping is used by editor baking and runtime `BuildFromString`, so both paths produce the same widget classes.
 
 ### AI-Assisted Workflow
 
