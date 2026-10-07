@@ -242,10 +242,10 @@ UWidgetBlueprint* FXmlUIBaker::BakeDslToWidgetBlueprint(const FString& DslFilePa
     }
 
     // Persist the raw DSL source and a hash of it onto the asset via package metadata
-    UMetaData* DslMetaData = BP->GetPackage()->GetMetaData();
-    DslMetaData->SetValue(BP, TEXT("XmlUI.SourceDsl"), *XmlContent);
-    DslMetaData->SetValue(BP, TEXT("XmlUI.SourceHash"), *FMD5::HashAnsiString(*XmlContent));
-    DslMetaData->SetValue(BP, TEXT("XmlUI.BakeVersion"), TEXT("1"));
+    FMetaData& DslMetaData = BP->GetPackage()->GetMetaData();
+    DslMetaData.SetValue(BP, TEXT("XmlUI.SourceDsl"), *XmlContent);
+    DslMetaData.SetValue(BP, TEXT("XmlUI.SourceHash"), *FMD5::HashAnsiString(*XmlContent));
+    DslMetaData.SetValue(BP, TEXT("XmlUI.BakeVersion"), TEXT("1"));
 
     BP->MarkPackageDirty();
     const TArray<UPackage*> Packages{ Pkg };
