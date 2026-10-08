@@ -130,14 +130,14 @@ Baked Widget Blueprint assets carry the package metadata `XmlUI.SourceDsl`, `Xml
 | Popup menu anchor | `MenuAnchor` | Builds `UMenuAnchor`; `Menu` references the popup Widget Blueprint; at most one child |
 | Background border | `Border` | Builds `UBorder` with `BrushColor`/`Padding`; at most one child |
 | Nested widget reference | `UserWidget` | References another Widget Blueprint via `WBP`; children with `SlotName` are inserted into the nested widget's named slots |
-| Elements | `Text`, `Image`, `Button` | Text, image/color block, and button |
+| Elements | `Text`, `Image`, `Button`, `CheckBox` | Text, image/color block, button, and checkbox |
 | Helpers | `Spacer`, `ProgressBar` | Spacing and left-to-right progress |
 
 **Common attributes**
 
 | Scope | Attributes |
 |---|---|
-| Common | `Name`, `Visibility`, `RenderOpacity` |
+| Common | `Name`, `Class`, `Visibility`, `RenderOpacity` |
 | Text | `Text`, `FontSize`, `ArtFontSize`, `FontFamily`, `Color`, `Justification`, `WrapTextAt`, `ShadowColor`, `ShadowOffset` |
 | Image | `Brush`, `Color`, `DesiredSize` |
 | Button | `Text`, `ButtonColor`, `TextColor`, `FontFamily`, `Padding` |
@@ -243,6 +243,8 @@ XmlUI/
 
 - There are currently no tags for input fields, sliders, list views, gradients, rounded corners, blur, or animations.
 - Every baked node must have a non-empty, legal, globally unique `Name`.
+- WBP → DSL export now preserves standard UMG/project widget subclasses through `Class="/Script/..."`; this makes exported trees suitable for exact-class round-trips instead of requiring `WidgetClassMap` for every host type.
+- `CheckBox` is supported and round-trips its checked state.
 - Keep XML generation notes inside the `<XmlUI>` root node; a comment before the root can break Unreal's XML parser.
 - The root has no parent slot, so root `Padding`, `HAlign`, `VAlign`, and `SizeParam` have no effect.
 - Unknown tags are skipped and unknown or malformed attributes are generally ignored, so a successful bake does not guarantee a complete layout.
