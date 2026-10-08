@@ -1412,6 +1412,45 @@ UWidget* UXmlBuilder::BuildNodeInternal(UWidgetTree* Tree, const FXmlNodeDesc& N
 
 void UXmlBuilder::ApplyCommonAttributes(UWidget* Widget, const FXmlNodeDesc& Node)
 {
+    if (const FString* StyleValue = Node.Attributes.Find(TEXT("Style")))
+    {
+        if (FClassProperty* StyleClassProp = FindFProperty<FClassProperty>(Widget->GetClass(), TEXT("Style")))
+        {
+            if (UClass* StyleClass = LoadClass<UObject>(nullptr, **StyleValue))
+            {
+                StyleClassProp->SetObjectPropertyValue_InContainer(Widget, StyleClass);
+            }
+            else
+            {
+                UE_LOG(LogTemp, Warning, TEXT("XmlUI: could not load Style class '%s' for widget '%s'"), **StyleValue, *Widget->GetName());
+            }
+        }
+        else if (FObjectProperty* StyleObjectProp = FindFProperty<FObjectProperty>(Widget->GetClass(), TEXT("Style")))
+        {
+            if (UObject* StyleObject = LoadObject<UObject>(nullptr, **StyleValue))
+            {
+                StyleObjectProp->SetObjectPropertyValue_InContainer(Widget, StyleObject);
+            }
+            else
+            {
+                UE_LOG(LogTemp, Warning, TEXT("XmlUI: could not load Style object '%s' for widget '%s'"), **StyleValue, *Widget->GetName());
+            }
+        }
+    }
+
+    if (const FString* IsEnabledValue = Node.Attributes.Find(TEXT("IsEnabled")))
+    {
+        const FString LowerValue = IsEnabledValue->TrimStartAndEnd().ToLower();
+        if (LowerValue == TEXT("true") || LowerValue == TEXT("1"))
+        {
+            Widget->SetIsEnabled(true);
+        }
+        else if (LowerValue == TEXT("false") || LowerValue == TEXT("0"))
+        {
+            Widget->SetIsEnabled(false);
+        }
+    }
+
     if (const FString* VisibilityValue = Node.Attributes.Find(TEXT("Visibility")))
     {
         const FString LowerValue = VisibilityValue->ToLower();
