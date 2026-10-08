@@ -15,6 +15,7 @@
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
+#include "Components/CheckBox.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/Image.h"
@@ -121,21 +122,37 @@ static UWidget* TryCreateMappedWidget(UWidgetTree* InTree, const FXmlNodeDesc& I
 {
     bOutHasMapping = false;
     const FString& MappingTag = InMappingTag.IsEmpty() ? InNode.Tag : InMappingTag;
-    const FString* ClassPath = InWidgetClassMap ? InWidgetClassMap->Find(MappingTag) : nullptr;
+
+    const FString* ExplicitClassPath = InNode.Attributes.Find(TEXT("Class"));
+    const bool bExplicitClass = ExplicitClassPath && !ExplicitClassPath->IsEmpty();
+    const FString* ClassPath = bExplicitClass
+        ? ExplicitClassPath
+        : (InWidgetClassMap ? InWidgetClassMap->Find(MappingTag) : nullptr);
+
     if (!ClassPath || ClassPath->IsEmpty())
     {
         return nullptr;
     }
+
     bOutHasMapping = true;
     UClass* FoundClass = LoadClass<UWidget>(nullptr, **ClassPath);
     if (!FoundClass)
     {
-        OutError += FString::Printf(TEXT("XmlUI: WidgetClassMap class '%s' for tag '%s' could not be loaded\n"), **ClassPath, *MappingTag);
+        OutError += FString::Printf(
+            TEXT("XmlUI: %s class '%s' for tag '%s' could not be loaded\n"),
+            bExplicitClass ? TEXT("explicit") : TEXT("WidgetClassMap"),
+            **ClassPath,
+            *MappingTag);
         return nullptr;
     }
     if (!FoundClass->IsChildOf(InExpectedClass))
     {
-        OutError += FString::Printf(TEXT("XmlUI: WidgetClassMap class '%s' for tag '%s' is not a %s subclass\n"), **ClassPath, *MappingTag, *InExpectedClass->GetName());
+        OutError += FString::Printf(
+            TEXT("XmlUI: %s class '%s' for tag '%s' is not a %s subclass\n"),
+            bExplicitClass ? TEXT("explicit") : TEXT("WidgetClassMap"),
+            **ClassPath,
+            *MappingTag,
+            *InExpectedClass->GetName());
         return nullptr;
     }
     return InTree->ConstructWidget<UWidget>(FoundClass, FName(*InNode.Name));
@@ -842,6 +859,56 @@ UWidget* UXmlBuilder::BuildButtonNode(UWidgetTree* Tree, const FXmlNodeDesc& Nod
     return Widget;
 }
 
+UWidget* UXmlBuilder::BuildCheckBoxNode(UWidgetTree* Tree, const FXmlNodeDesc& Node, FString& OutError, const TMap<FString, FString>* InWidgetClassMap)
+{
+    bool bHasMapping = false;
+    UWidget* MappedWidget = TryCreateMappedWidget(Tree, Node, UCheckBox::StaticClass(), bHasMapping, OutError, InWidgetClassMap);
+    if (bHasMapping && !MappedWidget)
+    {
+        return nullptr;
+    }
+
+    UCheckBox* CheckBox = MappedWidget
+        ? Cast<UCheckBox>(MappedWidget)
+        : Tree->ConstructWidget<UCheckBox>(UCheckBox::StaticClass(), FName(*Node.Name));
+    if (!CheckBox)
+    {
+        return nullptr;
+    }
+
+    if (const FString* CheckedStateValue = Node.Attributes.Find(TEXT("CheckedState")))
+    {
+        const FString State = CheckedStateValue->TrimStartAndEnd().ToLower();
+        if (State == TEXT("checked") || State == TEXT("true"))
+        {
+            CheckBox->SetIsChecked(true);
+        }
+        else if (State == TEXT("unchecked") || State == TEXT("false"))
+        {
+            CheckBox->SetIsChecked(false);
+        }
+        else if (State == TEXT("undetermined"))
+        {
+            CheckBox->SetCheckedState(ECheckBoxState::Undetermined);
+        }
+    }
+
+    if (Node.Children.Num() > 0)
+    {
+        if (UWidget* ChildWidget = BuildNodeInternal(Tree, Node.Children[0], OutError, InWidgetClassMap))
+        {
+            CheckBox->AddChild(ChildWidget);
+        }
+        if (Node.Children.Num() > 1)
+        {
+            OutError += FString::Printf(TEXT("XmlUI: CheckBox '%s' has more than one child, ignoring extras\n"), *Node.Name);
+        }
+    }
+
+    ApplyCommonAttributes(CheckBox, Node);
+    return CheckBox;
+}
+
 UWidget* UXmlBuilder::BuildProgressBarNode(UWidgetTree* Tree, const FXmlNodeDesc& Node, FString& OutError, const TMap<FString, FString>* InWidgetClassMap)
 {
     UWidget* Widget = nullptr;
@@ -1320,6 +1387,7 @@ UWidget* UXmlBuilder::BuildNodeInternal(UWidgetTree* Tree, const FXmlNodeDesc& N
     else if (Node.Tag == TEXT("Text")) { return BuildTextNode(Tree, Node, OutError, InWidgetClassMap); }
     else if (Node.Tag == TEXT("Image")) { return BuildImageNode(Tree, Node, OutError, InWidgetClassMap); }
     else if (Node.Tag == TEXT("Button")) { return BuildButtonNode(Tree, Node, OutError, InWidgetClassMap); }
+    else if (Node.Tag == TEXT("CheckBox")) { return BuildCheckBoxNode(Tree, Node, OutError, InWidgetClassMap); }
     else if (Node.Tag == TEXT("Spacer")) { return BuildSpacerNode(Tree, Node, OutError, InWidgetClassMap); }
     else if (Node.Tag == TEXT("ProgressBar")) { return BuildProgressBarNode(Tree, Node, OutError, InWidgetClassMap); }
     else if (Node.Tag == TEXT("Overlay")) { return BuildOverlayNode(Tree, Node, OutError, InWidgetClassMap); }
@@ -1363,6 +1431,37 @@ UWidget* UXmlBuilder::BuildNodeInternal(UWidgetTree* Tree, const FXmlNodeDesc& N
 
 void UXmlBuilder::ApplyCommonAttributes(UWidget* Widget, const FXmlNodeDesc& Node)
 {
+    if (const FString* StyleValue = Node.Attributes.Find(TEXT("Style")))
+    {
+        if (FClassProperty* StyleClassProp = FindFProperty<FClassProperty>(Widget->GetClass(), TEXT("Style")))
+        {
+            if (UClass* StyleClass = LoadClass<UObject>(nullptr, **StyleValue))
+            {
+                StyleClassProp->SetObjectPropertyValue_InContainer(Widget, StyleClass);
+            }
+        }
+        else if (FObjectProperty* StyleObjectProp = FindFProperty<FObjectProperty>(Widget->GetClass(), TEXT("Style")))
+        {
+            if (UObject* StyleObject = LoadObject<UObject>(nullptr, **StyleValue))
+            {
+                StyleObjectProp->SetObjectPropertyValue_InContainer(Widget, StyleObject);
+            }
+        }
+    }
+
+    if (const FString* IsEnabledValue = Node.Attributes.Find(TEXT("IsEnabled")))
+    {
+        const FString LowerValue = IsEnabledValue->TrimStartAndEnd().ToLower();
+        if (LowerValue == TEXT("true") || LowerValue == TEXT("1"))
+        {
+            Widget->SetIsEnabled(true);
+        }
+        else if (LowerValue == TEXT("false") || LowerValue == TEXT("0"))
+        {
+            Widget->SetIsEnabled(false);
+        }
+    }
+
     if (const FString* VisibilityValue = Node.Attributes.Find(TEXT("Visibility")))
     {
         const FString LowerValue = VisibilityValue->ToLower();
