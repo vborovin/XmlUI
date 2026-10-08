@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Exact per-node `Class` override for self-contained native/project UMG round-trips.
 - Standard UMG `UTextBlock`, `UImage`, `UButton`, `UVerticalBox`, and `UHorizontalBox` export support.
 - `CheckBox` DSL/build/export support, including checked-state round-trip.
+- Reflected `Style` and `IsEnabled` round-trip for host/CommonUI widget subclasses.
 - Optional `Out=/Game/...` override for the `XmlUI.BakeDsl` console command.
 
 ### Changed
