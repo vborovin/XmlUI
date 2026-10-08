@@ -21,6 +21,7 @@ Treat this file as the syntax source of truth. The parser and builder are permis
 | `Text` | `UXmlTextBlock` | none | Slate text wrapper |
 | `Image` | `UXmlImage` | none | Solid brush, texture, or material |
 | `Button` | `UXmlButton` | zero or one | Uses built-in text when childless; extra children are ignored |
+| `CheckBox` | `UCheckBox` | zero or one | Optional content child; `CheckedState` round-trips `checked` / `unchecked` / `undetermined` |
 | `Spacer` | `UXmlSpacer` | none | Square desired size; the panel's main axis uses the relevant dimension |
 | `ProgressBar` | `UXmlProgressBar` | none | Left-to-right fill |
 | `WrapBox` | `UWrapBox` | many | Wrapping container; `WrapWidth` (float) sets the explicit wrap width; child slots use `Padding`/`HAlign`/`VAlign` |
@@ -63,6 +64,7 @@ Attribute names and tag names are case-sensitive.
 | Attribute | Accepted values | Notes |
 |---|---|---|
 | `Visibility` | `Visible`, `Hidden`, `Collapsed`, `HitTestInvisible` | Compared case-insensitively; other values are ignored |
+| `Class` | Unreal class path | Optional exact widget class for this tag, e.g. `/Script/UMG.TextBlock` or `/Script/CommonUI.CommonTextBlock`; must derive from the tag's expected UMG type. Takes precedence over `WidgetClassMap` and is emitted by WBP → DSL export when the concrete class differs from XmlUI's built-in default. |
 | `RenderOpacity` | float | Passed to `SetRenderOpacity` |
 
 `ColorAndOpacity` is recognized only for `Text`, `Image`, `ProgressBar`, and `Button`. It maps respectively to text color, image color multiplier, fill color, and button color. It has no effect on layout containers, `SizeBox`, or `Spacer`.
@@ -106,6 +108,14 @@ Use `SizeBox` around an image when width or height must be enforced by layout.
 | `Padding` | margin | Button content padding |
 
 A button can contain one custom child, such as an `Image` or a layout container. When a `Button` is itself a child of `XmlUI`, `Vertical`, `Horizontal`, or `Overlay`, the same `Padding` attribute is also read as parent-slot padding. Wrap the button in a `SizeBox` or another container when content padding and outer spacing must differ.
+
+### CheckBox
+
+| Attribute | Type | Notes |
+|---|---|---|
+| `CheckedState` | `checked`, `unchecked`, `undetermined` | Case-insensitive; `true` and `false` are also accepted by the builder |
+
+A checkbox can contain one custom child. WBP → DSL export preserves the concrete class with `Class` when it is a project subclass.
 
 ### Spacer
 
@@ -321,7 +331,7 @@ Use a simple approximation only when it preserves useful structure, and state th
 - Unknown attributes and malformed values are usually ignored.
 - Unknown child tags are skipped, potentially producing an incomplete but successfully saved Widget Blueprint.
 - `ParentClass` on the root overrides `BaseWidgetClass` and must use `/Script/<Module>.<ClassNameWithoutU>`. NEVER include the C++ `U` prefix: the class `USampleWidget` is `/Script/SampleGame.SampleWidget` (UClass::GetPathName() and the plugin exporter omit the `U`). A U-prefixed value makes the baker fail with "Failed to load ParentClass '...'; check the path (format /Script/<Module>.<ClassName>)" — the class itself is fine, the string is wrong.
-- Output is `<BakedBlueprintOutputPath>/WBP_<sanitized complete XML basename>`. The baker replaces spaces, hyphens, and dots with underscores, so `XmlUI_ProfileCard.xml` produces `WBP_XmlUI_ProfileCard`.
+- Output is `<BakedBlueprintOutputPath>/WBP_<sanitized complete XML basename>` by default. The baker replaces spaces, hyphens, and dots with underscores, so `XmlUI_ProfileCard.xml` produces `WBP_XmlUI_ProfileCard`. The console command can override the exact asset path with `XmlUI.BakeDsl File=<xml path> Out=/Game/UI/W_Name`.
 - Existing assets are not overwritten.
 
 ## Final Checklist
