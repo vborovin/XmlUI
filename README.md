@@ -156,7 +156,7 @@ See the [XmlUI DSL Reference](./AI/figma-to-xmlui/skills/figma-to-xmlui/referenc
 
 ### C++ Binding
 
-The root node binds to a host C++ class via `ParentClass`; every `Name` in the XML maps to a `BindWidget` property in C++, and the two must correspond one-to-one.
+The root node binds to a host C++ class via `ParentClass`; every `Name` in the XML maps to a `BindWidget` property in C++, and the two must correspond one-to-one. Editable native-parent class defaults that differ from the parent CDO round-trip as root attributes named `Default.<PropertyName>`; the baker restores them through Unreal reflection after compilation.
 
 `SampleGame` below only illustrates the path format; substitute your actual host module and class names.
 
