@@ -65,6 +65,8 @@ Attribute names and tag names are case-sensitive.
 |---|---|---|
 | `Visibility` | `Visible`, `Hidden`, `Collapsed`, `HitTestInvisible` | Compared case-insensitively; other values are ignored |
 | `Class` | Unreal class path | Optional exact widget class for this tag, e.g. `/Script/UMG.TextBlock` or `/Script/CommonUI.CommonTextBlock`; must derive from the tag's expected UMG type. Takes precedence over `WidgetClassMap` and is emitted by WBP → DSL export when the concrete class differs from XmlUI's built-in default. |
+| `Style` | object/class path | Best-effort reflected `Style` property round-trip. Supports host widgets such as CommonUI text/button classes without making XmlUI depend on CommonUI. |
+| `IsEnabled` | `true` / `false` | Widget enabled state; exported when it differs from the class default. |
 | `RenderOpacity` | float | Passed to `SetRenderOpacity` |
 
 `ColorAndOpacity` is recognized only for `Text`, `Image`, `ProgressBar`, and `Button`. It maps respectively to text color, image color multiplier, fill color, and button color. It has no effect on layout containers, `SizeBox`, or `Spacer`.
