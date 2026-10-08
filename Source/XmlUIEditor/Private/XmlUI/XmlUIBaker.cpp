@@ -19,6 +19,7 @@
 #include "Misc/Paths.h"
 #include "Misc/SecureHash.h"
 #include "UObject/MetaData.h"
+#include "UObject/UnrealType.h"
 
 #define LOCTEXT_NAMESPACE "XmlUIBaker"
 
@@ -72,6 +73,77 @@ namespace
             }
         }
         return Result;
+    }
+
+    bool ApplyBlueprintDefaultOverrides(UWidgetBlueprint* BP, const FXmlNodeDesc& RootDesc, FString& OutError)
+    {
+        if (!BP || !BP->GeneratedClass)
+        {
+            OutError += TEXT("XmlUI: cannot apply Blueprint defaults because the generated class is unavailable\n");
+            return false;
+        }
+
+        UObject* CDO = BP->GeneratedClass->GetDefaultObject();
+        if (!CDO)
+        {
+            OutError += TEXT("XmlUI: cannot apply Blueprint defaults because the generated CDO is unavailable\n");
+            return false;
+        }
+
+        bool bModified = false;
+        for (const TPair<FString, FString>& Attribute : RootDesc.Attributes)
+        {
+            if (!Attribute.Key.StartsWith(TEXT("Default.")))
+            {
+                continue;
+            }
+
+            const FString PropertyName = Attribute.Key.RightChop(8);
+            FProperty* Property = FindFProperty<FProperty>(BP->GeneratedClass, FName(*PropertyName));
+            if (!Property)
+            {
+                OutError += FString::Printf(
+                    TEXT("XmlUI: Blueprint default property '%s' was not found on generated class '%s'\n"),
+                    *PropertyName,
+                    *BP->GeneratedClass->GetPathName());
+                return false;
+            }
+
+            if (!Property->HasAnyPropertyFlags(CPF_Edit)
+                || Property->HasAnyPropertyFlags(CPF_Transient | CPF_Deprecated))
+            {
+                OutError += FString::Printf(
+                    TEXT("XmlUI: Blueprint default property '%s' on '%s' is not an editable persistent property\n"),
+                    *PropertyName,
+                    *BP->GeneratedClass->GetPathName());
+                return false;
+            }
+
+            if (!bModified)
+            {
+                BP->Modify();
+                CDO->Modify();
+                bModified = true;
+            }
+
+            void* ValuePtr = Property->ContainerPtrToValuePtr<void>(CDO);
+            if (!Property->ImportText_Direct(*Attribute.Value, ValuePtr, CDO, PPF_None))
+            {
+                OutError += FString::Printf(
+                    TEXT("XmlUI: failed to import Blueprint default '%s' value '%s' on '%s'\n"),
+                    *PropertyName,
+                    *Attribute.Value,
+                    *BP->GeneratedClass->GetPathName());
+                return false;
+            }
+        }
+
+        if (bModified)
+        {
+            CDO->PostEditChange();
+            BP->MarkPackageDirty();
+        }
+        return true;
     }
 }
 
@@ -238,6 +310,12 @@ UWidgetBlueprint* FXmlUIBaker::BakeDslToWidgetBlueprint(const FString& DslFilePa
         BP->MarkAsGarbage();
         UE_LOG(LogTemp, Error, TEXT("XmlUI: Blueprint compilation failed for %s (e.g. missing/incompatible BindWidget slots); asset was NOT saved"), *BP->GetName());
         OutError += FString::Printf(TEXT("XmlUI: Blueprint compilation failed for %s (missing/incompatible BindWidget slots); see Output Log for details\n"), *AssetName);
+        return nullptr;
+    }
+
+    if (!ApplyBlueprintDefaultOverrides(BP, RootDesc, OutError))
+    {
+        BP->MarkAsGarbage();
         return nullptr;
     }
 
