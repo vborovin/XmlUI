@@ -104,6 +104,8 @@ UWidget* Root = UXmlBuilder::BuildFromString(this, XmlContent, Error);
 
 Baked assets round-trip: Level Editor main menu → **XmlUI** → **XmlUI: Export WBP to DSL** exports a selected `.uasset` back to `.xml`.
 
+The exporter accepts Widget Blueprints from any mounted Unreal content root, including project/GameFeature plugin `Content/` directories, not only `/Game`.
+
 The same operations run headless via console commands:
 
 ```text
