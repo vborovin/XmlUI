@@ -648,6 +648,20 @@ namespace
 
         for (const TPair<FString, FString>& Attribute : Node.Attributes)
         {
+            if (bIsRoot && Attribute.Key.StartsWith(TEXT("Default.")))
+            {
+                const FString PropertyName = Attribute.Key.RightChop(8);
+                if (PropertyName.IsEmpty())
+                {
+                    OutError += FString::Printf(
+                        TEXT("XmlUI: empty Blueprint default property name on <%s Name=\"%s\">; use Default.<PropertyName>.\n"),
+                        *Node.Tag,
+                        *Node.Name);
+                    return false;
+                }
+                continue;
+            }
+
             if (!Allowed.Contains(Attribute.Key))
             {
                 OutError += FString::Printf(
