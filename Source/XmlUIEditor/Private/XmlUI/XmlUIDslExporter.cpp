@@ -225,7 +225,27 @@ namespace
             return true;
         }
 
-        if (WidgetClass->IsChildOf(UTextBlock::StaticClass()))
+        if (WidgetClass->IsChildOf(UXmlTextBlock::StaticClass()))
+        {
+            OutTag = TEXT("Text");
+        }
+        else if (WidgetClass->IsChildOf(UXmlImage::StaticClass()))
+        {
+            OutTag = TEXT("Image");
+        }
+        else if (WidgetClass->IsChildOf(UXmlButton::StaticClass()))
+        {
+            OutTag = TEXT("Button");
+        }
+        else if (WidgetClass->IsChildOf(UXmlSpacer::StaticClass()))
+        {
+            OutTag = TEXT("Spacer");
+        }
+        else if (WidgetClass->IsChildOf(UXmlProgressBar::StaticClass()))
+        {
+            OutTag = TEXT("ProgressBar");
+        }
+        else if (WidgetClass->IsChildOf(UTextBlock::StaticClass()))
         {
             OutTag = TEXT("Text");
         }
