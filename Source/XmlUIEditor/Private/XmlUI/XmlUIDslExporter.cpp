@@ -401,6 +401,53 @@ namespace
         }
     }
 
+    void AppendBlueprintDefaultAttrs(TArray<FString>& Out, const UWidgetBlueprint* BP)
+    {
+        if (!BP || !BP->GeneratedClass || !BP->ParentClass)
+        {
+            return;
+        }
+
+        const UObject* BlueprintCDO = BP->GeneratedClass->GetDefaultObject();
+        const UObject* ParentCDO = BP->ParentClass->GetDefaultObject();
+        if (!BlueprintCDO || !ParentCDO)
+        {
+            return;
+        }
+
+        // Only native-parent editable properties can be reconstructed on a freshly
+        // baked Widget Blueprint. Blueprint-declared variables are intentionally
+        // excluded because XmlUI does not declare Blueprint variables.
+        for (TFieldIterator<FProperty> It(BP->ParentClass, EFieldIterationFlags::IncludeSuper); It; ++It)
+        {
+            const FProperty* Property = *It;
+            if (!Property->HasAnyPropertyFlags(CPF_Edit)
+                || Property->HasAnyPropertyFlags(CPF_Transient | CPF_Deprecated))
+            {
+                continue;
+            }
+
+            if (Property->Identical_InContainer(BlueprintCDO, ParentCDO))
+            {
+                continue;
+            }
+
+            FString ExportedValue;
+            Property->ExportText_InContainer(
+                0,
+                ExportedValue,
+                BlueprintCDO,
+                ParentCDO,
+                const_cast<UObject*>(BlueprintCDO),
+                PPF_None);
+
+            AppendAttr(
+                Out,
+                *FString::Printf(TEXT("Default.%s"), *Property->GetName()),
+                ExportedValue);
+        }
+    }
+
     // --- per-widget attribute export (Append*Attrs) ---
     void AppendTextAttrs(TArray<FString>& Out, const UWidget* Widget)
     {
@@ -955,6 +1002,7 @@ namespace
             {
                 AppendAttr(Attrs, TEXT("ParentClass"), ParentClass->GetPathName());
             }
+            AppendBlueprintDefaultAttrs(Attrs, InCtx.BP);
         }
         AppendAttr(Attrs, TEXT("Name"), InWidget->GetName());
         AppendExactClassAttr(Attrs, InWidget, Tag);
