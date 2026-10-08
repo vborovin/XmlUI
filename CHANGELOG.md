@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CheckBox` DSL/build/export support, including checked-state round-trip.
 - Reflected `Style` and `IsEnabled` round-trip for host/CommonUI widget subclasses.
 - Optional `Out=/Game/...` override for the `XmlUI.BakeDsl` console command.
+- WBP exporter support for mounted project/GameFeature plugin content roots, not only `/Game`.
 
 ### Changed
 - WBP → DSL export preserves concrete host widget classes when they differ from XmlUI's built-in wrapper classes.
