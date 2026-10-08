@@ -15,6 +15,7 @@
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
+#include "Components/CheckBox.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/Image.h"
@@ -112,21 +113,42 @@ static UWidget* TryCreateMappedWidget(UWidgetTree* InTree, const FXmlNodeDesc& I
 {
     bOutHasMapping = false;
     const FString& MappingTag = InMappingTag.IsEmpty() ? InNode.Tag : InMappingTag;
-    const FString* ClassPath = InWidgetClassMap ? InWidgetClassMap->Find(MappingTag) : nullptr;
+
+    // A Class attribute makes exported UMG self-contained and takes precedence over
+    // host WidgetClassMap configuration. This is what allows exact UMG -> XML -> UMG
+    // round-trips for native/project widget subclasses (for example CommonTextBlock).
+    const FString* ExplicitClassPath = InNode.Attributes.Find(TEXT("Class"));
+    const FString* ClassPath = ExplicitClassPath;
+    const bool bExplicitClass = ExplicitClassPath && !ExplicitClassPath->IsEmpty();
+    if (!bExplicitClass)
+    {
+        ClassPath = InWidgetClassMap ? InWidgetClassMap->Find(MappingTag) : nullptr;
+    }
+
     if (!ClassPath || ClassPath->IsEmpty())
     {
         return nullptr;
     }
+
     bOutHasMapping = true;
     UClass* FoundClass = LoadClass<UWidget>(nullptr, **ClassPath);
     if (!FoundClass)
     {
-        OutError += FString::Printf(TEXT("XmlUI: WidgetClassMap class '%s' for tag '%s' could not be loaded\n"), **ClassPath, *MappingTag);
+        OutError += FString::Printf(
+            TEXT("XmlUI: %s class '%s' for tag '%s' could not be loaded\n"),
+            bExplicitClass ? TEXT("explicit") : TEXT("WidgetClassMap"),
+            **ClassPath,
+            *MappingTag);
         return nullptr;
     }
     if (!FoundClass->IsChildOf(InExpectedClass))
     {
-        OutError += FString::Printf(TEXT("XmlUI: WidgetClassMap class '%s' for tag '%s' is not a %s subclass\n"), **ClassPath, *MappingTag, *InExpectedClass->GetName());
+        OutError += FString::Printf(
+            TEXT("XmlUI: %s class '%s' for tag '%s' is not a %s subclass\n"),
+            bExplicitClass ? TEXT("explicit") : TEXT("WidgetClassMap"),
+            **ClassPath,
+            *MappingTag,
+            *InExpectedClass->GetName());
         return nullptr;
     }
     return InTree->ConstructWidget<UWidget>(FoundClass, FName(*InNode.Name));
@@ -813,6 +835,61 @@ UWidget* UXmlBuilder::BuildButtonNode(UWidgetTree* Tree, const FXmlNodeDesc& Nod
     return Widget;
 }
 
+UWidget* UXmlBuilder::BuildCheckBoxNode(UWidgetTree* Tree, const FXmlNodeDesc& Node, FString& OutError, const TMap<FString, FString>* InWidgetClassMap)
+{
+    bool bHasMapping = false;
+    UWidget* MappedWidget = TryCreateMappedWidget(Tree, Node, UCheckBox::StaticClass(), bHasMapping, OutError, InWidgetClassMap);
+    if (bHasMapping && !MappedWidget)
+    {
+        return nullptr;
+    }
+
+    UCheckBox* CheckBox = MappedWidget
+        ? Cast<UCheckBox>(MappedWidget)
+        : Tree->ConstructWidget<UCheckBox>(UCheckBox::StaticClass(), FName(*Node.Name));
+    if (!CheckBox)
+    {
+        return nullptr;
+    }
+
+    if (const FString* CheckedStateValue = Node.Attributes.Find(TEXT("CheckedState")))
+    {
+        const FString State = CheckedStateValue->TrimStartAndEnd().ToLower();
+        if (State == TEXT("checked") || State == TEXT("true"))
+        {
+            CheckBox->SetIsChecked(true);
+        }
+        else if (State == TEXT("unchecked") || State == TEXT("false"))
+        {
+            CheckBox->SetIsChecked(false);
+        }
+        else if (State == TEXT("undetermined"))
+        {
+            CheckBox->SetCheckedState(ECheckBoxState::Undetermined);
+        }
+        else
+        {
+            OutError += FString::Printf(TEXT("XmlUI: CheckBox '%s' has invalid CheckedState '%s'\n"), *Node.Name, **CheckedStateValue);
+        }
+    }
+
+    if (Node.Children.Num() > 0)
+    {
+        UWidget* ChildWidget = BuildNodeInternal(Tree, Node.Children[0], OutError, InWidgetClassMap);
+        if (ChildWidget)
+        {
+            CheckBox->AddChild(ChildWidget);
+        }
+        if (Node.Children.Num() > 1)
+        {
+            OutError += FString::Printf(TEXT("XmlUI: CheckBox '%s' has more than one child, ignoring extras\n"), *Node.Name);
+        }
+    }
+
+    ApplyCommonAttributes(CheckBox, Node);
+    return CheckBox;
+}
+
 UWidget* UXmlBuilder::BuildProgressBarNode(UWidgetTree* Tree, const FXmlNodeDesc& Node, FString& OutError, const TMap<FString, FString>* InWidgetClassMap)
 {
     UWidget* Widget = nullptr;
@@ -1291,6 +1368,7 @@ UWidget* UXmlBuilder::BuildNodeInternal(UWidgetTree* Tree, const FXmlNodeDesc& N
     else if (Node.Tag == TEXT("Text")) { return BuildTextNode(Tree, Node, OutError, InWidgetClassMap); }
     else if (Node.Tag == TEXT("Image")) { return BuildImageNode(Tree, Node, OutError, InWidgetClassMap); }
     else if (Node.Tag == TEXT("Button")) { return BuildButtonNode(Tree, Node, OutError, InWidgetClassMap); }
+    else if (Node.Tag == TEXT("CheckBox")) { return BuildCheckBoxNode(Tree, Node, OutError, InWidgetClassMap); }
     else if (Node.Tag == TEXT("Spacer")) { return BuildSpacerNode(Tree, Node, OutError, InWidgetClassMap); }
     else if (Node.Tag == TEXT("ProgressBar")) { return BuildProgressBarNode(Tree, Node, OutError, InWidgetClassMap); }
     else if (Node.Tag == TEXT("Overlay")) { return BuildOverlayNode(Tree, Node, OutError, InWidgetClassMap); }
