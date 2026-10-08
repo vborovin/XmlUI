@@ -16,7 +16,9 @@
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
+#include "Components/CheckBox.h"
 #include "Components/ContentWidget.h"
+#include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/Image.h"
 #include "Components/MenuAnchor.h"
@@ -33,6 +35,7 @@
 #include "Components/TextWidgetTypes.h"
 #include "Components/UniformGridPanel.h"
 #include "Components/UniformGridSlot.h"
+#include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
 #include "Components/WrapBox.h"
 #include "Components/WrapBoxSlot.h"
@@ -44,6 +47,7 @@
 #include "Materials/MaterialInterface.h"
 #include "Misc/FileHelper.h"
 #include "Misc/MessageDialog.h"
+#include "Misc/PackageName.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
 #include "Styling/SlateBrush.h"
@@ -242,6 +246,38 @@ namespace
         {
             OutTag = TEXT("ProgressBar");
         }
+        else if (WidgetClass->IsChildOf(UTextBlock::StaticClass()))
+        {
+            OutTag = TEXT("Text");
+        }
+        else if (WidgetClass->IsChildOf(UImage::StaticClass()))
+        {
+            OutTag = TEXT("Image");
+        }
+        else if (WidgetClass->IsChildOf(UButton::StaticClass()))
+        {
+            OutTag = TEXT("Button");
+        }
+        else if (WidgetClass->IsChildOf(UCheckBox::StaticClass()))
+        {
+            OutTag = TEXT("CheckBox");
+        }
+        else if (WidgetClass->IsChildOf(USpacer::StaticClass()))
+        {
+            OutTag = TEXT("Spacer");
+        }
+        else if (WidgetClass->IsChildOf(UProgressBar::StaticClass()))
+        {
+            OutTag = TEXT("ProgressBar");
+        }
+        else if (WidgetClass->IsChildOf(UVerticalBox::StaticClass()))
+        {
+            OutTag = bIsRoot ? TEXT("XmlUI") : TEXT("Vertical");
+        }
+        else if (WidgetClass->IsChildOf(UHorizontalBox::StaticClass()))
+        {
+            OutTag = TEXT("Horizontal");
+        }
         else if (WidgetClass->IsChildOf(UOverlay::StaticClass()))
         {
             OutTag = TEXT("Overlay");
@@ -303,6 +339,66 @@ namespace
             return false;
         }
         return true;
+    }
+
+    UClass* GetNativeDefaultClassForTag(const FString& Tag)
+    {
+        if (Tag == TEXT("Text")) return UTextBlock::StaticClass();
+        if (Tag == TEXT("Image")) return UImage::StaticClass();
+        if (Tag == TEXT("Button")) return UButton::StaticClass();
+        if (Tag == TEXT("CheckBox")) return UCheckBox::StaticClass();
+        if (Tag == TEXT("Spacer")) return USpacer::StaticClass();
+        if (Tag == TEXT("ProgressBar")) return UProgressBar::StaticClass();
+        if (Tag == TEXT("XmlUI") || Tag == TEXT("Vertical")) return UVerticalBox::StaticClass();
+        if (Tag == TEXT("Horizontal")) return UHorizontalBox::StaticClass();
+        if (Tag == TEXT("Overlay")) return UOverlay::StaticClass();
+        if (Tag == TEXT("SizeBox")) return USizeBox::StaticClass();
+        if (Tag == TEXT("ScaleBox")) return UScaleBox::StaticClass();
+        if (Tag == TEXT("WrapBox")) return UWrapBox::StaticClass();
+        if (Tag == TEXT("Grid")) return UUniformGridPanel::StaticClass();
+        if (Tag == TEXT("ScrollBox")) return UScrollBox::StaticClass();
+        if (Tag == TEXT("Canvas")) return UCanvasPanel::StaticClass();
+        if (Tag == TEXT("MenuAnchor")) return UMenuAnchor::StaticClass();
+        if (Tag == TEXT("Border")) return UBorder::StaticClass();
+        return nullptr;
+    }
+
+    void AppendExactClassAttr(TArray<FString>& Out, const UWidget* Widget, const FString& Tag)
+    {
+        if (Tag == TEXT("UserWidget"))
+        {
+            return;
+        }
+
+        UClass* NativeDefault = GetNativeDefaultClassForTag(Tag);
+        if (NativeDefault && Widget->GetClass() != NativeDefault)
+        {
+            AppendAttr(Out, TEXT("Class"), Widget->GetClass()->GetPathName());
+        }
+    }
+
+    void AppendReflectedStyleAttr(TArray<FString>& Out, const UWidget* Widget)
+    {
+        const UObject* DefaultObject = Widget->GetClass()->GetDefaultObject();
+
+        if (const FClassProperty* StyleClassProp = FindFProperty<FClassProperty>(Widget->GetClass(), TEXT("Style")))
+        {
+            UObject* StyleClassObject = StyleClassProp->GetObjectPropertyValue_InContainer(Widget);
+            UObject* DefaultStyleClassObject = StyleClassProp->GetObjectPropertyValue_InContainer(DefaultObject);
+            if (StyleClassObject && StyleClassObject != DefaultStyleClassObject)
+            {
+                AppendAttr(Out, TEXT("Style"), StyleClassObject->GetPathName());
+            }
+        }
+        else if (const FObjectProperty* StyleObjectProp = FindFProperty<FObjectProperty>(Widget->GetClass(), TEXT("Style")))
+        {
+            UObject* StyleObject = StyleObjectProp->GetObjectPropertyValue_InContainer(Widget);
+            UObject* DefaultStyleObject = StyleObjectProp->GetObjectPropertyValue_InContainer(DefaultObject);
+            if (StyleObject && StyleObject != DefaultStyleObject)
+            {
+                AppendAttr(Out, TEXT("Style"), StyleObject->GetPathName());
+            }
+        }
     }
 
     // --- per-widget attribute export (Append*Attrs) ---
@@ -432,6 +528,26 @@ namespace
             const UButton* Default = GetDefault<UButton>(Widget->GetClass());
             if (EngineButton->GetColorAndOpacity() != Default->GetColorAndOpacity()) AppendAttr(Out, TEXT("ButtonColor"), ColorToHex(EngineButton->GetColorAndOpacity()));
             // Text/TextColor/Padding are not applied to mapped UButton classes by the baker.
+        }
+    }
+
+    void AppendCheckBoxAttrs(TArray<FString>& Out, const UWidget* Widget)
+    {
+        const UCheckBox* CheckBox = Cast<UCheckBox>(Widget);
+        if (!CheckBox)
+        {
+            return;
+        }
+
+        const UCheckBox* Default = GetDefault<UCheckBox>(Widget->GetClass());
+        const ECheckBoxState State = CheckBox->GetCheckedState();
+        if (State != Default->GetCheckedState())
+        {
+            const TCHAR* StateText =
+                State == ECheckBoxState::Checked ? TEXT("checked") :
+                State == ECheckBoxState::Undetermined ? TEXT("undetermined") :
+                TEXT("unchecked");
+            AppendAttr(Out, TEXT("CheckedState"), StateText);
         }
     }
 
@@ -677,6 +793,10 @@ namespace
         {
             AppendButtonAttrs(Out, Widget);
         }
+        else if (Tag == TEXT("CheckBox"))
+        {
+            AppendCheckBoxAttrs(Out, Widget);
+        }
         else if (Tag == TEXT("Spacer"))
         {
             AppendSpacerAttrs(Out, Widget);
@@ -837,8 +957,14 @@ namespace
             }
         }
         AppendAttr(Attrs, TEXT("Name"), InWidget->GetName());
+        AppendExactClassAttr(Attrs, InWidget, Tag);
 
         const UWidget* ClassDefault = GetDefault<UWidget>(InWidget->GetClass());
+        AppendReflectedStyleAttr(Attrs, InWidget);
+        if (InWidget->GetIsEnabled() != ClassDefault->GetIsEnabled())
+        {
+            AppendAttr(Attrs, TEXT("IsEnabled"), InWidget->GetIsEnabled() ? TEXT("true") : TEXT("false"));
+        }
         if (InWidget->GetVisibility() != ClassDefault->GetVisibility())
         {
             AppendAttr(Attrs, TEXT("Visibility"), VisibilityToString(InWidget->GetVisibility()));
@@ -918,20 +1044,17 @@ namespace
         return Result;
     }
 
-    bool ConvertUassetToGamePath(const FString& InFilePath, FString& OutAssetPath)
+    bool ConvertUassetToPackagePath(const FString& InFilePath, FString& OutAssetPath)
     {
         FString FullPath = FPaths::ConvertRelativePathToFull(InFilePath);
         FPaths::NormalizeFilename(FullPath);
-        FString ContentDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectContentDir());
-        FPaths::NormalizeFilename(ContentDir);
-        if (!FullPath.StartsWith(ContentDir, ESearchCase::IgnoreCase))
+
+        if (!FPackageName::TryConvertFilenameToLongPackageName(FullPath, OutAssetPath))
         {
             return false;
         }
-        FString Relative = FullPath.RightChop(ContentDir.Len());
-        Relative = FPaths::GetBaseFilename(Relative, false);
-        OutAssetPath = TEXT("/Game/") + Relative;
-        return true;
+
+        return !OutAssetPath.IsEmpty();
     }
 
     // Mirrors FXmlUIBaker's asset name sanitizer so the console bake produces the same output path as the dialog.
@@ -960,7 +1083,7 @@ void FXmlUIDslExporter::RunExportFromDialog()
     }
 
     TArray<FString> OutFiles;
-    if (!DesktopPlatform->OpenFileDialog(nullptr, TEXT("XmlUI: Select a Widget Blueprint asset"), FPaths::ProjectContentDir(), TEXT(""),
+    if (!DesktopPlatform->OpenFileDialog(nullptr, TEXT("XmlUI: Select a Widget Blueprint asset"), FPaths::ProjectDir(), TEXT(""),
         TEXT("Widget Blueprint|*.uasset|All files|*.*"), EFileDialogFlags::None, OutFiles))
     {
         return;
@@ -971,9 +1094,9 @@ void FXmlUIDslExporter::RunExportFromDialog()
     }
 
     FString WbpAssetPath;
-    if (!ConvertUassetToGamePath(OutFiles[0], WbpAssetPath))
+    if (!ConvertUassetToPackagePath(OutFiles[0], WbpAssetPath))
     {
-        FMessageDialog::Open(EAppMsgType::Ok, FText::Format(LOCTEXT("NotInContent", "XmlUI: The selected asset is not inside the project Content directory: {0}"),
+        FMessageDialog::Open(EAppMsgType::Ok, FText::Format(LOCTEXT("NotInContent", "XmlUI: The selected asset is not inside a mounted Unreal content root: {0}"),
             FText::FromString(OutFiles[0])));
         return;
     }
@@ -1094,20 +1217,24 @@ static FAutoConsoleCommand GXmlUIExportWbpCommand(
 
 static FAutoConsoleCommand GXmlUIBakeDslCommand(
     TEXT("XmlUI.BakeDsl"),
-    TEXT("Bake an XmlUI DSL file into a Widget Blueprint asset. Usage: XmlUI.BakeDsl File=<xml path>"),
+    TEXT("Bake an XmlUI DSL file into a Widget Blueprint asset. Usage: XmlUI.BakeDsl File=<xml path> [Out=/Game/UI/W_Name]"),
     FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
     {
         const FString Cmd = FString::Join(Args, TEXT(" "));
         FString FilePath;
+        FString RequestedOutAssetPath;
         FParse::Value(*Cmd, TEXT("File="), FilePath);
+        FParse::Value(*Cmd, TEXT("Out="), RequestedOutAssetPath);
         if (FilePath.IsEmpty())
         {
-            UE_LOG(LogTemp, Error, TEXT("XmlUI.BakeDsl: missing arguments; usage: XmlUI.BakeDsl File=<xml path>"));
+            UE_LOG(LogTemp, Error, TEXT("XmlUI.BakeDsl: missing arguments; usage: XmlUI.BakeDsl File=<xml path> [Out=/Game/UI/W_Name]"));
             return;
         }
 
-        const FString OutAssetPath = FString::Printf(TEXT("%s/WBP_%s"),
-            *GetDefault<UXmlUISettings>()->BakedBlueprintOutputPath, *SanitizeBakeAssetName(FPaths::GetBaseFilename(FilePath)));
+        const FString OutAssetPath = RequestedOutAssetPath.IsEmpty()
+            ? FString::Printf(TEXT("%s/WBP_%s"),
+                *GetDefault<UXmlUISettings>()->BakedBlueprintOutputPath, *SanitizeBakeAssetName(FPaths::GetBaseFilename(FilePath)))
+            : RequestedOutAssetPath;
         FString OutError;
         UWidgetBlueprint* BP = FXmlUIBaker::BakeDslToWidgetBlueprint(FilePath, OutAssetPath, OutError);
         if (BP)
