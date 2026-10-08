@@ -47,6 +47,7 @@
 #include "Materials/MaterialInterface.h"
 #include "Misc/FileHelper.h"
 #include "Misc/MessageDialog.h"
+#include "Misc/PackageName.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
 #include "Styling/SlateBrush.h"
@@ -1043,20 +1044,20 @@ namespace
         return Result;
     }
 
-    bool ConvertUassetToGamePath(const FString& InFilePath, FString& OutAssetPath)
+    bool ConvertUassetToPackagePath(const FString& InFilePath, FString& OutAssetPath)
     {
         FString FullPath = FPaths::ConvertRelativePathToFull(InFilePath);
         FPaths::NormalizeFilename(FullPath);
-        FString ContentDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectContentDir());
-        FPaths::NormalizeFilename(ContentDir);
-        if (!FullPath.StartsWith(ContentDir, ESearchCase::IgnoreCase))
+
+        // Let Unreal resolve mounted content roots instead of assuming /Game.
+        // This is required for Widget Blueprints stored in GameFeature/project
+        // plugins, e.g. /CharacterCustomization/... .
+        if (!FPackageName::TryConvertFilenameToLongPackageName(FullPath, OutAssetPath))
         {
             return false;
         }
-        FString Relative = FullPath.RightChop(ContentDir.Len());
-        Relative = FPaths::GetBaseFilename(Relative, false);
-        OutAssetPath = TEXT("/Game/") + Relative;
-        return true;
+
+        return !OutAssetPath.IsEmpty();
     }
 
     // Mirrors FXmlUIBaker's asset name sanitizer so the console bake produces the same output path as the dialog.
@@ -1085,7 +1086,7 @@ void FXmlUIDslExporter::RunExportFromDialog()
     }
 
     TArray<FString> OutFiles;
-    if (!DesktopPlatform->OpenFileDialog(nullptr, TEXT("XmlUI: Select a Widget Blueprint asset"), FPaths::ProjectContentDir(), TEXT(""),
+    if (!DesktopPlatform->OpenFileDialog(nullptr, TEXT("XmlUI: Select a Widget Blueprint asset"), FPaths::ProjectDir(), TEXT(""),
         TEXT("Widget Blueprint|*.uasset|All files|*.*"), EFileDialogFlags::None, OutFiles))
     {
         return;
@@ -1096,9 +1097,9 @@ void FXmlUIDslExporter::RunExportFromDialog()
     }
 
     FString WbpAssetPath;
-    if (!ConvertUassetToGamePath(OutFiles[0], WbpAssetPath))
+    if (!ConvertUassetToPackagePath(OutFiles[0], WbpAssetPath))
     {
-        FMessageDialog::Open(EAppMsgType::Ok, FText::Format(LOCTEXT("NotInContent", "XmlUI: The selected asset is not inside the project Content directory: {0}"),
+        FMessageDialog::Open(EAppMsgType::Ok, FText::Format(LOCTEXT("NotInContent", "XmlUI: The selected asset is not inside a mounted Unreal content root: {0}"),
             FText::FromString(OutFiles[0])));
         return;
     }
