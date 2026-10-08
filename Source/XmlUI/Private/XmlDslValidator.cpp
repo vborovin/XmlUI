@@ -48,8 +48,11 @@ namespace
     {
         const FString& Tag = Node.Tag;
 
-        if (bIsRoot && Tag == TEXT("XmlUI"))
+        if (bIsRoot)
         {
+            // ParentClass belongs to the Widget Blueprint document, not specifically
+            // to the XmlUI/Vertical root tag. Exported WBPs may legitimately have
+            // Horizontal, Overlay, Canvas, Button, etc. as their actual root widget.
             Allowed.Add(TEXT("ParentClass"));
         }
 
@@ -634,13 +637,9 @@ namespace
             return false;
         }
 
-        if (bIsRoot && Node.Tag != TEXT("XmlUI"))
-        {
-            OutError += FString::Printf(
-                TEXT("XmlUI: document root must be <XmlUI>, got <%s>.\n"),
-                *Node.Tag);
-            return false;
-        }
+        // Any supported widget may be the document root. This is required for
+        // lossless WBP -> DSL -> WBP round-trips: a Widget Blueprint can have a
+        // HorizontalBox, CanvasPanel, Button, etc. as its real root widget.
 
         TSet<FString> Allowed;
         AddCommonAttributes(Allowed);
