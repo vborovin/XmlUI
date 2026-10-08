@@ -75,13 +75,15 @@ Attribute names and tag names are case-sensitive.
 | `ArtFontSize` | integer | Uses `GetXmlFontSizeByArtFontSize` and its built-in `ArtFont2FontMap`; takes precedence when non-negative |
 | `FontSize` | integer | Direct engine size; use when the host does not adopt the built-in art-size lookup |
 | `FontFamily` | string | Figma font family name, resolved through the host-configured `XmlUISettings.FontFamilyMap`; unmapped or unloadable names fall back to the default widget font with a warning |
+| `FontPath` | Unreal object path | Direct UFont asset path; mainly emitted by WBP export when no `FontFamilyMap` alias exists |
+| `Typeface` | string | Preserves `FSlateFontInfo.TypefaceFontName`, such as `Regular`, `Light`, or `Bold` |
 | `Color` | color | Text color |
 | `Justification` | `Left`, `Center`, `Right` | Case-insensitive |
 | `WrapTextAt` | float | Wrap width |
 | `ShadowColor` | color | Shadow tint |
 | `ShadowOffset` | vector | `X,Y`; blur is unsupported |
 
-The default project font comes from Unreal's default widget font. `FontFamily` resolves a Figma font family name through the host-configured `XmlUISettings.FontFamilyMap` and falls back to the default widget font with a warning when unmapped or unloadable. Weight, letter-spacing, outline, and rich-text support remain unavailable. Map values accept the font's full object path (`/Game/Fonts/PingFang.PingFang`) or the bare package path (`/Game/Fonts/PingFang`); prefer the full object path so WBP→DSL export round-trips the name exactly.
+The default project font comes from Unreal's default widget font. `FontFamily` resolves a Figma font family name through the host-configured `XmlUISettings.FontFamilyMap` and falls back to the default widget font with a warning when unmapped or unloadable. `FontPath` bypasses that alias map with a direct UFont object path, and WBP export uses it as a lossless fallback when a non-default font has no reverse mapping. `Typeface` round-trips the Slate face/weight name. Letter-spacing, outline, and rich-text support remain unavailable. Map values accept the font's full object path (`/Game/Fonts/PingFang.PingFang`) or the bare package path (`/Game/Fonts/PingFang`); prefer the full object path so WBP→DSL export round-trips the name exactly.
 
 Choose the size attribute from host conventions. `ArtFontSize` is a plugin-provided convenience mapping, not a universal Figma scale. A project with a different typography policy should convert the source size itself and emit `FontSize`; inspect existing XML or ask before choosing.
 
@@ -305,7 +307,7 @@ Document rather than silently approximating:
 - Gradients.
 - Strokes and text outlines.
 - Blur, backdrop blur, and shadow blur radius.
-- Font weight and letter spacing.
+- Letter spacing and variable-font axis controls.
 - Rich text with mixed styles.
 - Arbitrary transforms, rotation, and masking.
 - Animation and interaction state styling beyond `UXmlButton` defaults.

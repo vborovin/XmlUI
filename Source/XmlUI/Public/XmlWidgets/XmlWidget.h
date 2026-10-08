@@ -53,6 +53,12 @@ public:
     FString FontFamily;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI")
+    FString FontPath;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI")
+    FString Typeface;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI")
     FLinearColor Color = FLinearColor::White;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI")

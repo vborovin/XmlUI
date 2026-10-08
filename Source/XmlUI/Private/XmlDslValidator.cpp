@@ -62,6 +62,8 @@ namespace
             Allowed.Add(TEXT("FontSize"));
             Allowed.Add(TEXT("ArtFontSize"));
             Allowed.Add(TEXT("FontFamily"));
+            Allowed.Add(TEXT("FontPath"));
+            Allowed.Add(TEXT("Typeface"));
             Allowed.Add(TEXT("Color"));
             Allowed.Add(TEXT("Justification"));
             Allowed.Add(TEXT("WrapTextAt"));
@@ -496,6 +498,11 @@ namespace
         {
             return !AttributeValue.TrimStartAndEnd().IsEmpty()
                 || FailValue(Node, AttributeName, AttributeValue, TEXT("a non-empty Unreal class/object path"), OutError);
+        }
+        if (AttributeName == TEXT("FontPath"))
+        {
+            return FPackageName::IsValidObjectPath(AttributeValue.TrimStartAndEnd())
+                || FailValue(Node, AttributeName, AttributeValue, TEXT("a valid Unreal font object path"), OutError);
         }
         if (AttributeName == TEXT("IsEnabled"))
         {

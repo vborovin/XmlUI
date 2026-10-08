@@ -261,6 +261,19 @@ static void ApplyMappedText(FString& OutError, UWidget* InWidget, const FXmlNode
     {
         FontFamily = *FontFamilyValue;
     }
+
+    FString FontPath;
+    if (const FString* FontPathValue = InNode.Attributes.Find(TEXT("FontPath")))
+    {
+        FontPath = *FontPathValue;
+    }
+
+    FString Typeface;
+    if (const FString* TypefaceValue = InNode.Attributes.Find(TEXT("Typeface")))
+    {
+        Typeface = *TypefaceValue;
+    }
+
     int32 FontSize = 16;
     bool bHasFontSize = false;
     if (const FString* FontSizeValue = InNode.Attributes.Find(TEXT("FontSize")))
@@ -275,23 +288,49 @@ static void ApplyMappedText(FString& OutError, UWidget* InWidget, const FXmlNode
         int32 ArtFontSize = -1;
         if (UXmlDslParser::ParseInt(*ArtFontSizeValue, ArtFontSize) && ArtFontSize > 0)
         {
-            // Host widget (e.g. USampleTextBlock) Figma font-size field: write best-effort, ignore on failure
             if (FIntProperty* ArtFontProp = FindFProperty<FIntProperty>(InWidget->GetClass(), TEXT("ArtFont")))
             {
                 ArtFontProp->SetPropertyValue_InContainer(InWidget, ArtFontSize);
             }
             else
             {
-                FontSize = ArtFontSize; // fall back to the engine font size when there is no ArtFont field
+                FontSize = ArtFontSize;
                 bHasFontSize = true;
             }
         }
     }
-    if (bHasFontSize || !FontFamily.IsEmpty())
+
+    if (bHasFontSize || !FontFamily.IsEmpty() || !FontPath.IsEmpty() || !Typeface.IsEmpty())
     {
-        // FontFamily without FontSize must keep the mapped widget's configured default size, not force 16.
-        const int32 EffectiveFontSize = bHasFontSize ? FontSize : TextBlock->GetFont().Size;
-        TextBlock->SetFont(FSlateFontInfo(GetXmlFontByFamily(FontFamily), EffectiveFontSize));
+        FSlateFontInfo FontInfo = TextBlock->GetFont();
+
+        if (bHasFontSize)
+        {
+            FontInfo.Size = FontSize;
+        }
+
+        if (!FontPath.IsEmpty())
+        {
+            if (UFont* DirectFont = LoadObject<UFont>(nullptr, *FontPath))
+            {
+                FontInfo.FontObject = DirectFont;
+            }
+            else
+            {
+                OutError += FString::Printf(TEXT("XmlUI: Text '%s' could not load FontPath '%s'\n"), *InNode.Name, *FontPath);
+            }
+        }
+        else if (!FontFamily.IsEmpty())
+        {
+            FontInfo.FontObject = GetXmlFontByFamily(FontFamily);
+        }
+
+        if (!Typeface.IsEmpty())
+        {
+            FontInfo.TypefaceFontName = FName(*Typeface);
+        }
+
+        TextBlock->SetFont(FontInfo);
     }
 }
 
@@ -564,6 +603,14 @@ UWidget* UXmlBuilder::BuildTextNode(UWidgetTree* Tree, const FXmlNodeDesc& Node,
         if (const FString* FontFamilyValue = Node.Attributes.Find(TEXT("FontFamily")))
         {
             TextBlock->FontFamily = *FontFamilyValue;
+        }
+        if (const FString* FontPathValue = Node.Attributes.Find(TEXT("FontPath")))
+        {
+            TextBlock->FontPath = *FontPathValue;
+        }
+        if (const FString* TypefaceValue = Node.Attributes.Find(TEXT("Typeface")))
+        {
+            TextBlock->Typeface = *TypefaceValue;
         }
         if (const FString* ColorValue = Node.Attributes.Find(TEXT("Color")))
         {

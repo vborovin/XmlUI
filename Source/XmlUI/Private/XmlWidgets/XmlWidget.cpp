@@ -22,7 +22,27 @@ void UXmlWidget::ReleaseSlateResources(bool bReleaseChildren)
 FSlateFontInfo UXmlTextBlock::BuildFontInfo() const
 {
     const int32 EffectiveSize = (ArtFontSize >= 0) ? GetXmlFontSizeByArtFontSize(ArtFontSize) : FontSize;
-    return FSlateFontInfo(GetXmlFontByFamily(FontFamily), EffectiveSize);
+
+    UFont* FontObject = nullptr;
+    if (!FontPath.IsEmpty())
+    {
+        FontObject = LoadObject<UFont>(nullptr, *FontPath);
+        if (!FontObject)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("XmlUI: Failed to load font '%s'; falling back to FontFamily/default font"), *FontPath);
+        }
+    }
+    if (!FontObject)
+    {
+        FontObject = GetXmlFontByFamily(FontFamily);
+    }
+
+    FSlateFontInfo FontInfo(FontObject, EffectiveSize);
+    if (!Typeface.IsEmpty())
+    {
+        FontInfo.TypefaceFontName = FName(*Typeface);
+    }
+    return FontInfo;
 }
 
 TSharedRef<SWidget> UXmlTextBlock::BuildSlateWidget()

@@ -47,6 +47,8 @@ Do not mechanically derive the API macro when an existing class can confirm it; 
 
 A host can override the binding type of any tag through `XmlUISettings.WidgetClassMap` (for example `Text` → `USampleTextBlock*`, `Vertical` → `UVerticalBox*`); prefer the configuration when generating the contract, and use the default map above only for tags that are not configured.
 
+Text presentation remains in the DSL rather than the C++ binding contract. `FontFamily`, direct round-trip `FontPath`, and `Typeface` are baked into the text widget unless runtime code explicitly needs to change them.
+
 Containers are usually presentation-only, but bind one when code must add, remove, or inspect children. A dynamic reward list, for example, can bind its `Horizontal` host as `UXmlPanel*`.
 
 ## Header Rules

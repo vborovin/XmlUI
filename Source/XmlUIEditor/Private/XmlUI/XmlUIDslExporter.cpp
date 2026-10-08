@@ -458,6 +458,8 @@ namespace
             if (XmlText->FontSize != Default->FontSize) AppendAttr(Out, TEXT("FontSize"), FString::FromInt(XmlText->FontSize));
             if (XmlText->ArtFontSize != Default->ArtFontSize) AppendAttr(Out, TEXT("ArtFontSize"), FString::FromInt(XmlText->ArtFontSize));
             if (!XmlText->FontFamily.IsEmpty()) AppendAttr(Out, TEXT("FontFamily"), XmlText->FontFamily);
+            if (!XmlText->FontPath.IsEmpty()) AppendAttr(Out, TEXT("FontPath"), XmlText->FontPath);
+            if (!XmlText->Typeface.IsEmpty()) AppendAttr(Out, TEXT("Typeface"), XmlText->Typeface);
             if (XmlText->Color != Default->Color) AppendAttr(Out, TEXT("Color"), ColorToHex(XmlText->Color));
             if (XmlText->Justification != Default->Justification) AppendAttr(Out, TEXT("Justification"), JustificationToString(XmlText->Justification));
             if (XmlText->WrapTextAt != Default->WrapTextAt) AppendAttr(Out, TEXT("WrapTextAt"), FString::SanitizeFloat(XmlText->WrapTextAt));
@@ -468,28 +470,47 @@ namespace
         {
             const UTextBlock* Default = GetDefault<UTextBlock>(Widget->GetClass());
             if (!EngineText->GetText().IsEmpty()) AppendAttr(Out, TEXT("Text"), EngineText->GetText().ToString());
-            if (EngineText->GetFont().Size != Default->GetFont().Size) AppendAttr(Out, TEXT("FontSize"), FString::FromInt(EngineText->GetFont().Size));
-            if (const UObject* FontObject = EngineText->GetFont().FontObject)
+            const FSlateFontInfo FontInfo = EngineText->GetFont();
+            const FSlateFontInfo DefaultFontInfo = Default->GetFont();
+
+            if (FontInfo.Size != DefaultFontInfo.Size)
             {
-                // GetDefaultFontName() is a package path while GetPathName() appends ".ObjectName"; strip it before comparing.
-                FString FontPackagePath = FontObject->GetPathName();
+                AppendAttr(Out, TEXT("FontSize"), FString::FromInt(FontInfo.Size));
+            }
+
+            const UObject* FontObject = FontInfo.FontObject;
+            const UObject* DefaultFontObject = DefaultFontInfo.FontObject;
+            const FString FullFontPath = FontObject ? FontObject->GetPathName() : FString();
+            const FString DefaultFullFontPath = DefaultFontObject ? DefaultFontObject->GetPathName() : FString();
+
+            if (FontObject && FullFontPath != DefaultFullFontPath)
+            {
+                FString FontPackagePath = FullFontPath;
                 if (const int32 DotIndex = FontPackagePath.Find(TEXT("."), ESearchCase::CaseSensitive, ESearchDir::FromEnd); DotIndex != INDEX_NONE)
                 {
                     FontPackagePath.LeftInline(DotIndex);
                 }
-                if (FontPackagePath != UWidget::GetDefaultFontName())
+
+                bool bFoundFamily = false;
+                for (const TPair<FString, FString>& Pair : GetDefault<UXmlUISettings>()->FontFamilyMap)
                 {
-                    // Reverse-lookup non-default fonts through FontFamilyMap (value = asset path -> key = Figma family name).
-                    const FString FullFontPath = FontObject->GetPathName();
-                    for (const TPair<FString, FString>& Pair : GetDefault<UXmlUISettings>()->FontFamilyMap)
+                    if (Pair.Value == FullFontPath || Pair.Value == FontPackagePath)
                     {
-                        if (Pair.Value == FullFontPath || Pair.Value == FontPackagePath)
-                        {
-                            AppendAttr(Out, TEXT("FontFamily"), Pair.Key);
-                            break;
-                        }
+                        AppendAttr(Out, TEXT("FontFamily"), Pair.Key);
+                        bFoundFamily = true;
+                        break;
                     }
                 }
+
+                if (!bFoundFamily)
+                {
+                    AppendAttr(Out, TEXT("FontPath"), FullFontPath);
+                }
+            }
+
+            if (FontInfo.TypefaceFontName != DefaultFontInfo.TypefaceFontName)
+            {
+                AppendAttr(Out, TEXT("Typeface"), FontInfo.TypefaceFontName.ToString());
             }
             if (FIntProperty* ArtFontProp = FindFProperty<FIntProperty>(Widget->GetClass(), TEXT("ArtFont")))
             {
