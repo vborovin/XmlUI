@@ -26,6 +26,7 @@ namespace
             TEXT("Text"),
             TEXT("Image"),
             TEXT("Button"),
+            TEXT("CheckBox"),
             TEXT("Spacer"),
             TEXT("ProgressBar"),
         };
@@ -35,6 +36,9 @@ namespace
     void AddCommonAttributes(TSet<FString>& Allowed)
     {
         Allowed.Add(TEXT("Name"));
+        Allowed.Add(TEXT("Class"));
+        Allowed.Add(TEXT("Style"));
+        Allowed.Add(TEXT("IsEnabled"));
         Allowed.Add(TEXT("Visibility"));
         Allowed.Add(TEXT("RenderOpacity"));
         Allowed.Add(TEXT("ColorAndOpacity"));
@@ -74,6 +78,10 @@ namespace
             Allowed.Add(TEXT("TextColor"));
             Allowed.Add(TEXT("FontFamily"));
             Allowed.Add(TEXT("Padding"));
+        }
+        else if (Tag == TEXT("CheckBox"))
+        {
+            Allowed.Add(TEXT("CheckedState"));
         }
         else if (Tag == TEXT("Spacer"))
         {
@@ -481,6 +489,23 @@ namespace
                 || FailValue(Node, AttributeName, AttributeValue, TEXT("a non-empty named-slot name"), OutError);
         }
 
+        if (AttributeName == TEXT("Class") || AttributeName == TEXT("Style"))
+        {
+            return !AttributeValue.TrimStartAndEnd().IsEmpty()
+                || FailValue(Node, AttributeName, AttributeValue, TEXT("a non-empty Unreal class/object path"), OutError);
+        }
+        if (AttributeName == TEXT("IsEnabled"))
+        {
+            return ParseStrictBool(AttributeValue)
+                || FailValue(Node, AttributeName, AttributeValue, TEXT("'true' or 'false'"), OutError);
+        }
+        if (AttributeName == TEXT("CheckedState"))
+        {
+            return IsOneOf(AttributeValue,
+                { TEXT("checked"), TEXT("unchecked"), TEXT("undetermined"), TEXT("true"), TEXT("false") })
+                || FailValue(Node, AttributeName, AttributeValue,
+                    TEXT("checked, unchecked, undetermined, true, or false"), OutError);
+        }
         if (AttributeName == TEXT("Visibility"))
         {
             return IsOneOf(AttributeValue,
