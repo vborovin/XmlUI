@@ -137,7 +137,7 @@ Baked Widget Blueprint assets carry the package metadata `XmlUI.SourceDsl`, `Xml
 
 | Scope | Attributes |
 |---|---|
-| Common | `Name`, `Class`, `Visibility`, `RenderOpacity` |
+| Common | `Name`, `Class`, `Style`, `IsEnabled`, `Visibility`, `RenderOpacity` |
 | Text | `Text`, `FontSize`, `ArtFontSize`, `FontFamily`, `Color`, `Justification`, `WrapTextAt`, `ShadowColor`, `ShadowOffset` |
 | Image | `Brush`, `Color`, `DesiredSize` |
 | Button | `Text`, `ButtonColor`, `TextColor`, `FontFamily`, `Padding` |
