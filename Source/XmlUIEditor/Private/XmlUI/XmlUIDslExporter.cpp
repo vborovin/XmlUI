@@ -376,6 +376,30 @@ namespace
         }
     }
 
+    void AppendReflectedStyleAttr(TArray<FString>& Out, const UWidget* Widget)
+    {
+        const UObject* DefaultObject = Widget->GetClass()->GetDefaultObject();
+
+        if (const FClassProperty* StyleClassProp = FindFProperty<FClassProperty>(Widget->GetClass(), TEXT("Style")))
+        {
+            UObject* StyleClassObject = StyleClassProp->GetObjectPropertyValue_InContainer(Widget);
+            UObject* DefaultStyleClassObject = StyleClassProp->GetObjectPropertyValue_InContainer(DefaultObject);
+            if (StyleClassObject && StyleClassObject != DefaultStyleClassObject)
+            {
+                AppendAttr(Out, TEXT("Style"), StyleClassObject->GetPathName());
+            }
+        }
+        else if (const FObjectProperty* StyleObjectProp = FindFProperty<FObjectProperty>(Widget->GetClass(), TEXT("Style")))
+        {
+            UObject* StyleObject = StyleObjectProp->GetObjectPropertyValue_InContainer(Widget);
+            UObject* DefaultStyleObject = StyleObjectProp->GetObjectPropertyValue_InContainer(DefaultObject);
+            if (StyleObject && StyleObject != DefaultStyleObject)
+            {
+                AppendAttr(Out, TEXT("Style"), StyleObject->GetPathName());
+            }
+        }
+    }
+
     // --- per-widget attribute export (Append*Attrs) ---
     void AppendTextAttrs(TArray<FString>& Out, const UWidget* Widget)
     {
@@ -935,6 +959,11 @@ namespace
         AppendExactClassAttr(Attrs, InWidget, Tag);
 
         const UWidget* ClassDefault = GetDefault<UWidget>(InWidget->GetClass());
+        AppendReflectedStyleAttr(Attrs, InWidget);
+        if (InWidget->GetIsEnabled() != ClassDefault->GetIsEnabled())
+        {
+            AppendAttr(Attrs, TEXT("IsEnabled"), InWidget->GetIsEnabled() ? TEXT("true") : TEXT("false"));
+        }
         if (InWidget->GetVisibility() != ClassDefault->GetVisibility())
         {
             AppendAttr(Attrs, TEXT("Visibility"), VisibilityToString(InWidget->GetVisibility()));
