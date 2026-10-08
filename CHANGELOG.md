@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Exact per-node `Class` override for self-contained native/project UMG round-trips.
+- Standard UMG `UTextBlock`, `UImage`, `UButton`, `UVerticalBox`, and `UHorizontalBox` export support.
+- `CheckBox` DSL/build/export support, including checked-state round-trip.
+- Optional `Out=/Game/...` override for the `XmlUI.BakeDsl` console command.
+
+### Changed
+- WBP → DSL export preserves concrete host widget classes when they differ from XmlUI's built-in wrapper classes.
+
 ## [1.0.0] - 2026-09-09
 
 ### Added
