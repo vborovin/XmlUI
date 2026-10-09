@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Editor-only `XmlUI.ValidateRoundTrip` console command: export, bake, compile, save, reload and compare the serialized DSL surface with widget/attribute diagnostics; verify reloaded compiled text fonts.
+- Automated node comparison regression test (`XmlUI.RoundTrip.NodeCompare`).
 - Allowlisted native visual properties round-trip through `Visual.*` DSL attributes.
 - Export full visual font, state-style and brush snapshots rather than class-default deltas, and refresh text font changes through UMG.
 - Native-parent editable Widget Blueprint defaults round-trip as root `Default.<PropertyName>` attributes.

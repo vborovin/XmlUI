@@ -113,6 +113,16 @@ XmlUI.BakeDsl File=<xml path>
 
 `XmlUI.BakeDsl` is equivalent to the bake menu; `XmlUI.ExportWbp` writes the DSL back out.
 
+**6. Validate a saved Widget Blueprint round-trip**
+
+Run this editor console command (not in PIE):
+
+```text
+XmlUI.ValidateRoundTrip Wbp=/Game/UI/WBP_ListEntry
+```
+
+XmlUI exports the original, bakes and saves a GUID-named disposable WBP, reloads it from disk and compares the two exported XML trees. Differences include widget paths, attributes and the changed serialized values; reloaded compiled text fonts are checked separately. The source WBP is never modified. Save the WBP before running this command. A temporary asset is deleted after validation; failed cleanup is logged with its exact asset path. This checks the **supported exported DSL surface**, not arbitrary animations, bindings or unexported UPROPERTYs.
+
 Baked Widget Blueprint assets carry the package metadata `XmlUI.SourceDsl`, `XmlUI.SourceHash`, and `XmlUI.BakeVersion` — the original DSL text plus its MD5 — as a baseline for future incremental updates.
 
 ### DSL Reference

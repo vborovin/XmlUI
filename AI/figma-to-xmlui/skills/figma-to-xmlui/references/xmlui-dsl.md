@@ -325,9 +325,9 @@ Use a simple approximation only when it preserves useful structure, and state th
 - Put comments inside `<XmlUI>`. A comment before the root can fail `FXmlFile` parsing in this workflow.
 - Avoid `--` inside XML comments because XML forbids double hyphens in comment bodies.
 - Escape `&` as `&amp;`, `<` as `&lt;`, `>` as `&gt;`, `"` as `&quot;`, and `'` as `&apos;` when needed in attributes.
-- The baker validates names but does not validate the root tag, known attributes, or successfully parsed attribute values.
-- Unknown attributes and malformed values are usually ignored.
-- Unknown child tags are skipped, potentially producing an incomplete but successfully saved Widget Blueprint.
+- With `bStrictValidation=true` (the default), unknown tags and attributes and invalid typed values abort bake before asset creation.
+- Visual style properties supported by `Visual.*` are allowlisted and checked against the target widget class.
+- The editor command `XmlUI.ValidateRoundTrip Wbp=/Game/UI/WBP_Name` compares exported DSL properties after a disposable bake/save/reload/export cycle and checks compiled text fonts; it does not test animations or arbitrary unexported properties.
 - `ParentClass` on the root overrides `BaseWidgetClass` and must use `/Script/<Module>.<ClassNameWithoutU>`. NEVER include the C++ `U` prefix: the class `USampleWidget` is `/Script/SampleGame.SampleWidget` (UClass::GetPathName() and the plugin exporter omit the `U`). A U-prefixed value makes the baker fail with "Failed to load ParentClass '...'; check the path (format /Script/<Module>.<ClassName>)" — the class itself is fine, the string is wrong.
 - Output is `<BakedBlueprintOutputPath>/WBP_<sanitized complete XML basename>`. The baker replaces spaces, hyphens, and dots with underscores, so `XmlUI_ProfileCard.xml` produces `WBP_XmlUI_ProfileCard`.
 - Existing assets are not overwritten.
