@@ -1,6 +1,7 @@
 #include "XmlVisualStyle.h"
 
 #include "Components/Widget.h"
+#include "Components/TextBlock.h"
 #include "Engine/Font.h"
 #include "Fonts/SlateFontInfo.h"
 #include "UObject/UnrealType.h"
@@ -156,6 +157,16 @@ bool FXmlVisualStyle::Apply(UWidget* Widget, const FXmlNodeDesc& Node, FString& 
         }
     }
     ApplyFontAliases(Widget, Node);
+
+    // Direct reflected assignment updates the UPROPERTY but does not invoke the
+    // UTextBlock font-change notification. Let CommonUI/UMG refresh its Slate font.
+    if (Node.Attributes.Contains(TEXT("Visual.Font")))
+    {
+        if (UTextBlock* Text = Cast<UTextBlock>(Widget))
+        {
+            Text->SetFont(Text->GetFont());
+        }
+    }
     return true;
 }
 
@@ -176,12 +187,30 @@ void FXmlVisualStyle::Export(const UWidget* Widget, const FString& Tag,
     for (const FName Name : Names)
     {
         const FProperty* Property = FindFProperty<FProperty>(Widget->GetClass(), Name);
-        if (!IsPersistentEditable(Property) || Property->Identical_InContainer(Widget, Default))
+        if (!IsPersistentEditable(Property))
         {
             continue;
         }
+
+        // Text and state brushes must be self-contained: a delta against the
+        // native class default serializes e.g. Font as "(Size=20)" and loses
+        // the font object, typeface, outline and rendering settings.
+        const bool bSnapshot =
+            (Tag == TEXT("Text") && Name == TEXT("Font"))
+            || (Tag == TEXT("Button") && Name == TEXT("WidgetStyle"))
+            || (Tag == TEXT("CheckBox") && Name == TEXT("WidgetStyle"))
+            || (Tag == TEXT("ProgressBar") && Name == TEXT("WidgetStyle"))
+            || (Tag == TEXT("Image") && Name == TEXT("Brush"))
+            || (Tag == TEXT("Border") && Name == TEXT("Background"));
+        if (!bSnapshot && Property->Identical_InContainer(Widget, Default))
+        {
+            continue;
+        }
+
         FString Value;
-        Property->ExportText_InContainer(0, Value, Widget, Default,
+        // No Delta: export a full Unreal property value, not only fields that
+        // happen to differ from the source engine's native CDO.
+        Property->ExportText_InContainer(0, Value, Widget, nullptr,
             const_cast<UWidget*>(Widget), PPF_None);
         OutAttributes.Emplace(FString(TEXT("Visual.")) + Name.ToString(), MoveTemp(Value));
     }

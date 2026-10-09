@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Allowlisted native visual properties round-trip through `Visual.*` DSL attributes.
+- Export full visual font, state-style and brush snapshots rather than class-default deltas, and refresh text font changes through UMG.
 - Native-parent editable Widget Blueprint defaults round-trip as root `Default.<PropertyName>` attributes.
 - Native UMG is now the default backend for Vertical/Horizontal/Text/Image/Button/Spacer/ProgressBar; legacy `UXml*` widgets remain available as fallback.
 - Runtime `BuildFromString` now honors the same `WidgetClassMap` as editor baking.

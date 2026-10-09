@@ -2,6 +2,9 @@
 
 `Visual.<PropertyName>` serializes approved native visual UPROPERTYs using Unreal
 `FProperty::ExportText_InContainer` and `ImportText_Direct`.
+The exporter uses a null delta for full values, not a delta against the class
+default. It always writes the full Font/WidgetStyle/Brush/Background snapshot
+even when it matches the source class default.
 It does **not** use JSON or a handwritten representation of Slate structures.
 An exporter-generated value is preferable to writing raw Unreal struct text.
 The exporter XML-escapes nested quotes and ampersands.
@@ -39,3 +42,15 @@ Generate the real value by exporting an existing WBP. These attributes preserve
 a curated subset of native UMG visual state, not arbitrary Blueprint bindings,
 animations, every CommonUI-specific style, or all possible Slate properties.
 UE5.8 compilation and editor round-trip verification remain necessary.
+
+## Round-trip verification
+
+Export the donor WBP and check that `Visual.Font` contains a **full**
+`FSlateFontInfo` serialization, not merely `(Size=20)`. A legacy export
+containing only changed fields is not proof that the destination font will
+match the source.
+
+When migrating a widget, bake it with the intended new `ParentClass` (for
+example the application's shared list-entry base), then export **that new WBP**
+and compare both the visual fields and their rendered results. Style assets
+or host entry presenters can override local text formatting at runtime.
