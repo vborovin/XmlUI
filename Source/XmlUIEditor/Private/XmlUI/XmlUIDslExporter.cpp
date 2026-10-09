@@ -1367,6 +1367,34 @@ static FAutoConsoleCommand GXmlUIInspectWbpFontCommand(
         };
         Dump(TEXT("EditableTree"), Editable);
         Dump(TEXT("GeneratedTree"), Compiled);
+
+        // Compare a normal UObject duplication with UMG compiler's generated tree.
+        UWidgetTree* DuplicatedTree = BP->WidgetTree
+            ? DuplicateObject<UWidgetTree>(BP->WidgetTree, GetTransientPackage()) : nullptr;
+        const UTextBlock* DuplicatedText = DuplicatedTree
+            ? DuplicatedTree->FindWidget<UTextBlock>(FName(*WidgetName)) : nullptr;
+        Dump(TEXT("DuplicateTree"), DuplicatedText);
+
+        const auto DumpStyleState = [&](const TCHAR* Stage, const UTextBlock* Text)
+        {
+            if (!Text)
+            {
+                return;
+            }
+            const FObjectPropertyBase* StyleProperty =
+                FindFProperty<FObjectPropertyBase>(Text->GetClass(), TEXT("Style"));
+            const UObject* StyleValue = StyleProperty
+                ? StyleProperty->GetObjectPropertyValue_InContainer(Text) : nullptr;
+            const FBoolProperty* MigrationFlag =
+                FindFProperty<FBoolProperty>(Text->GetClass(), TEXT("bStyleNoLongerNeedsConversion"));
+            UE_LOG(LogTemp, Warning, TEXT("XmlUI FontInspect: %s style=%s migrationFlag=%s archetype=%s"),
+                Stage, *GetPathNameSafe(StyleValue),
+                MigrationFlag ? (MigrationFlag->GetPropertyValue_InContainer(Text) ? TEXT("true") : TEXT("false")) : TEXT("unavailable"),
+                *GetPathNameSafe(Text->GetArchetype()));
+        };
+        DumpStyleState(TEXT("EditableTree"), Editable);
+        DumpStyleState(TEXT("GeneratedTree"), Compiled);
+        DumpStyleState(TEXT("DuplicateTree"), DuplicatedText);
     }));
 
 #undef LOCTEXT_NAMESPACE
