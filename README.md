@@ -10,7 +10,7 @@
 
 <p align="center">
   <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-8b5cf6?style=flat-square" />
-  <img alt="Unreal Engine" src="https://img.shields.io/badge/Unreal%20Engine-5.5-0E1128?style=flat-square" />
+  <img alt="Unreal Engine" src="https://img.shields.io/badge/Unreal%20Engine-5.8-0E1128?style=flat-square" />
   <img alt="License" src="https://img.shields.io/badge/license-MPL--2.0-orange?style=flat-square" />
   <a href="https://linux.do"><img alt="LINUX DO" src="https://img.shields.io/badge/LINUX%20DO-community-0d9488?style=flat-square" /></a>
 </p>
@@ -121,7 +121,7 @@ Run this editor console command (not in PIE):
 XmlUI.ValidateRoundTrip Wbp=/Game/UI/WBP_ListEntry
 ```
 
-XmlUI exports the original, bakes and saves a GUID-named disposable WBP, reloads it from disk and compares the two exported XML trees. Differences include widget paths, attributes and the changed serialized values; reloaded compiled text fonts are checked separately. The source WBP is never modified. Save the WBP before running this command. A temporary asset is deleted after validation; failed cleanup is logged with its exact asset path. This checks the **supported exported DSL surface**, not arbitrary animations, bindings or unexported UPROPERTYs.
+XmlUI exports the original, bakes and saves a GUID-named disposable WBP, reloads it from disk and compares the two exported XML trees. Differences include widget paths, attributes and the changed serialized values; reloaded compiled text fonts are checked separately. The source WBP is never modified. Save the WBP before running this command. A temporary asset is deleted after validation; failed cleanup is logged with its exact asset path. Unreal asset deletion may clear editor Undo history. This checks the **supported exported DSL surface**, not arbitrary animations, bindings or unexported UPROPERTYs.
 
 Baked Widget Blueprint assets carry the package metadata `XmlUI.SourceDsl`, `XmlUI.SourceHash`, and `XmlUI.BakeVersion` — the original DSL text plus its MD5 — as a baseline for future incremental updates.
 
@@ -247,7 +247,7 @@ XmlUI/
 
 ### Requirements
 
-- Unreal Engine 5.5 serves as the current development and verification baseline.
+- Unreal Engine 5.8 is the verified SMA host; other versions require compatibility checks.
 - To use another engine version, recompile in the target project and verify API compatibility.
 - The Figma AI workflow is optional — the core features do not depend on MCP.
 

@@ -16,6 +16,7 @@
 #include "PackageTools.h"
 #include "Subsystems/EditorAssetSubsystem.h"
 #include "UObject/Package.h"
+#include "UObject/UObjectGlobals.h"
 #include "WidgetBlueprint.h"
 #include "XmlDslNode.h"
 #include "XmlDslParser.h"
@@ -140,6 +141,11 @@ namespace
 
     bool ValidateRoundTrip(const FString& WbpPath)
     {
+        if (GEditor && GEditor->PlayWorld)
+        {
+            UE_LOG(LogTemp, Error, TEXT("XmlUI RoundTrip: stop PIE before running validation"));
+            return false;
+        }
         if (!WbpPath.StartsWith(TEXT("/Game/")))
         {
             UE_LOG(LogTemp, Error, TEXT("XmlUI RoundTrip: Wbp must be a /Game/ asset path"));

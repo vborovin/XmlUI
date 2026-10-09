@@ -10,7 +10,7 @@
 
 <p align="center">
   <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-8b5cf6?style=flat-square" />
-  <img alt="Unreal Engine" src="https://img.shields.io/badge/Unreal%20Engine-5.5-0E1128?style=flat-square" />
+  <img alt="Unreal Engine" src="https://img.shields.io/badge/Unreal%20Engine-5.8-0E1128?style=flat-square" />
   <img alt="License" src="https://img.shields.io/badge/license-MPL--2.0-orange?style=flat-square" />
   <a href="https://linux.do"><img alt="LINUX DO" src="https://img.shields.io/badge/LINUX%20DO-community-0d9488?style=flat-square" /></a>
 </p>
@@ -121,7 +121,7 @@ XmlUI.BakeDsl File=<xml路径>
 XmlUI.ValidateRoundTrip Wbp=/Game/UI/WBP_ListEntry
 ```
 
-XmlUI 会导出原始 WBP，生成并保存唯一命名的临时 WBP，重新从磁盘加载并比较两份导出的 XML 树。差异报告包含控件路径、属性和序列化数值；同时检查重新加载的编译模板中的文本字体。原始 WBP 不会被修改。运行前必须保存源 WBP。验证结束后会删除临时资产，清理失败时会记录准确路径。此命令验证的是**可导出的 DSL 属性范围**，不覆盖动画、任意绑定或未导出的 UPROPERTY。
+XmlUI 会导出原始 WBP，生成并保存唯一命名的临时 WBP，重新从磁盘加载并比较两份导出的 XML 树。差异报告包含控件路径、属性和序列化数值；同时检查重新加载的编译模板中的文本字体。原始 WBP 不会被修改。运行前必须保存源 WBP。验证结束后会删除临时资产，清理失败时会记录准确路径。Unreal 删除资产时可能清除编辑器的撤销历史。此命令验证的是**可导出的 DSL 属性范围**，不覆盖动画、任意绑定或未导出的 UPROPERTY。
 
 烘焙出的 Widget Blueprint 资产带有 `XmlUI.SourceDsl`、`XmlUI.SourceHash`、`XmlUI.BakeVersion` 包元数据（源 DSL 原文 + MD5），为未来的增量更新提供基线。
 
@@ -245,7 +245,7 @@ XmlUI/
 
 ### Requirements
 
-- Unreal Engine 5.5 为当前开发与验证基线。
+- Unreal Engine 5.8 已在 SMA 宿主项目中验证；其他版本需额外测试。
 - 若需接入其他引擎版本，请在目标工程中重新编译并验证 API 兼容性。
 - Figma AI 工作流为可选能力；核心功能不依赖 MCP。
 
