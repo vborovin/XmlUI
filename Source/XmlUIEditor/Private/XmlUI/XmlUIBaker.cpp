@@ -353,6 +353,29 @@ UWidgetBlueprint* FXmlUIBaker::BakeDslToWidgetBlueprint(const FString& DslFilePa
         return nullptr;
     }
     BP->WidgetTree->RootWidget = Root;
+
+    // The baker constructs new widgets, not legacy CommonUI instances.
+    // Prevent migration of old default styles from replacing explicit fonts
+    // on the generated widget tree during Blueprint compilation.
+    TArray<UWidget*> CreatedWidgets;
+    BP->WidgetTree->GetAllWidgets(CreatedWidgets);
+    for (UWidget* Widget : CreatedWidgets)
+    {
+        if (!Cast<UTextBlock>(Widget))
+        {
+            continue;
+        }
+        if (FBoolProperty* ConversionFlag =
+            FindFProperty<FBoolProperty>(Widget->GetClass(), TEXT("bStyleNoLongerNeedsConversion")))
+        {
+            if (!ConversionFlag->GetPropertyValue_InContainer(Widget))
+            {
+                Widget->Modify();
+                ConversionFlag->SetPropertyValue_InContainer(Widget, true);
+            }
+        }
+    }
+
     if (Settings->bStrictValidation && !OutError.IsEmpty())
     {
         BP->MarkAsGarbage();
