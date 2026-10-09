@@ -1323,4 +1323,50 @@ static FAutoConsoleCommand GXmlUIBakeDslCommand(
         }
     }));
 
+// Read-only font inspection for a WBP's editable and compiled templates.
+static FAutoConsoleCommand GXmlUIInspectWbpFontCommand(
+    TEXT("XmlUI.InspectWbpFont"),
+    TEXT("Inspect WBP text: XmlUI.InspectWbpFont Wbp=/Game/UI/WBP_ListEntry Widget=EntryBtnLabel"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        const FString Cmd = FString::Join(Args, TEXT(" "));
+        FString WbpPath, WidgetName;
+        FParse::Value(*Cmd, TEXT("Wbp="), WbpPath);
+        FParse::Value(*Cmd, TEXT("Widget="), WidgetName);
+        if (WbpPath.IsEmpty() || WidgetName.IsEmpty())
+        {
+            UE_LOG(LogTemp, Error, TEXT("XmlUI.InspectWbpFont: expected Wbp=... Widget=..."));
+            return;
+        }
+
+        UWidgetBlueprint* BP = LoadObject<UWidgetBlueprint>(nullptr, *WbpPath);
+        if (!BP)
+        {
+            UE_LOG(LogTemp, Error, TEXT("XmlUI.InspectWbpFont: WBP not found: %s"), *WbpPath);
+            return;
+        }
+
+        const UWidgetBlueprintGeneratedClass* Generated =
+            Cast<UWidgetBlueprintGeneratedClass>(BP->GeneratedClass);
+        const UWidgetTree* GeneratedTree = Generated ? Generated->GetWidgetTreeArchetype() : nullptr;
+        const UTextBlock* Editable = BP->WidgetTree
+            ? BP->WidgetTree->FindWidget<UTextBlock>(FName(*WidgetName)) : nullptr;
+        const UTextBlock* Compiled = GeneratedTree
+            ? GeneratedTree->FindWidget<UTextBlock>(FName(*WidgetName)) : nullptr;
+        const auto Dump = [&](const TCHAR* Stage, const UTextBlock* Text)
+        {
+            if (!Text)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("XmlUI FontInspect: %s widget=%s MISSING"), Stage, *WidgetName);
+                return;
+            }
+            const FSlateFontInfo Font = Text->GetFont();
+            UE_LOG(LogTemp, Warning, TEXT("XmlUI FontInspect: %s widget=%s font=%s typeface=%s size=%.2f"),
+                Stage, *WidgetName, *GetPathNameSafe(Font.FontObject),
+                *Font.TypefaceFontName.ToString(), static_cast<double>(Font.Size));
+        };
+        Dump(TEXT("EditableTree"), Editable);
+        Dump(TEXT("GeneratedTree"), Compiled);
+    }));
+
 #undef LOCTEXT_NAMESPACE

@@ -8,6 +8,9 @@
 #include "XmlUI/XmlUIDslExporter.h"
 #include "XmlUISettings.h"
 #include "Kismet2/KismetEditorUtilities.h"
+#include "Kismet2/BlueprintEditorUtils.h"
+#include "Components/TextBlock.h"
+#include "Fonts/SlateFontInfo.h"
 #include "WidgetBlueprint.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetBlueprintGeneratedClass.h"
@@ -73,6 +76,55 @@ namespace
             }
         }
         return Result;
+    }
+
+    // Reject a bake when the generated widget template has lost text fonts.
+    bool VerifyCompiledTextFonts(UWidgetBlueprint* BP, FString& OutError)
+    {
+        const UWidgetBlueprintGeneratedClass* GeneratedClass =
+            BP ? Cast<UWidgetBlueprintGeneratedClass>(BP->GeneratedClass) : nullptr;
+        const UWidgetTree* EditableTree = BP ? BP->WidgetTree : nullptr;
+        const UWidgetTree* CompiledTree = GeneratedClass ? GeneratedClass->GetWidgetTreeArchetype() : nullptr;
+        if (!EditableTree || !CompiledTree)
+        {
+            OutError += TEXT("XmlUI: missing editable or compiled widget tree after compilation\n");
+            return false;
+        }
+
+        TArray<UWidget*> Widgets;
+        EditableTree->GetAllWidgets(Widgets);
+        for (const UWidget* Widget : Widgets)
+        {
+            const UTextBlock* EditableText = Cast<UTextBlock>(Widget);
+            if (!EditableText)
+            {
+                continue;
+            }
+
+            const UTextBlock* CompiledText = CompiledTree->FindWidget<UTextBlock>(EditableText->GetFName());
+            if (!CompiledText)
+            {
+                OutError += FString::Printf(TEXT("XmlUI: compiled text widget '%s' is missing\n"),
+                    *EditableText->GetName());
+                return false;
+            }
+
+            const FSlateFontInfo Source = EditableText->GetFont();
+            const FSlateFontInfo Compiled = CompiledText->GetFont();
+            if (Source.FontObject != Compiled.FontObject
+                || Source.TypefaceFontName != Compiled.TypefaceFontName
+                || Source.Size != Compiled.Size)
+            {
+                OutError += FString::Printf(
+                    TEXT("XmlUI: compiled font mismatch on '%s': editable=%s/%s/%.2f compiled=%s/%s/%.2f\n"),
+                    *EditableText->GetName(), *GetPathNameSafe(Source.FontObject),
+                    *Source.TypefaceFontName.ToString(), static_cast<double>(Source.Size),
+                    *GetPathNameSafe(Compiled.FontObject), *Compiled.TypefaceFontName.ToString(),
+                    static_cast<double>(Compiled.Size));
+                return false;
+            }
+        }
+        return true;
     }
 
     bool ApplyBlueprintDefaultOverrides(UWidgetBlueprint* BP, const FXmlNodeDesc& RootDesc, FString& OutError)
@@ -292,6 +344,8 @@ UWidgetBlueprint* FXmlUIBaker::BakeDslToWidgetBlueprint(const FString& DslFilePa
         ParentClass, Pkg, FName(*AssetName), BPTYPE_Normal,
         UWidgetBlueprint::StaticClass(), UWidgetBlueprintGeneratedClass::StaticClass()));
 
+    BP->Modify();
+    BP->WidgetTree->Modify();
     UWidget* Root = UXmlBuilder::BuildNode(BP->WidgetTree, RootDesc, OutError, &Settings->WidgetClassMap);
     if (!Root)
     {
@@ -299,17 +353,30 @@ UWidgetBlueprint* FXmlUIBaker::BakeDslToWidgetBlueprint(const FString& DslFilePa
         return nullptr;
     }
     BP->WidgetTree->RootWidget = Root;
+    if (Settings->bStrictValidation && !OutError.IsEmpty())
+    {
+        BP->MarkAsGarbage();
+        return nullptr;
+    }
+
+    BP->bIsNewlyCreated = false;
+    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(BP);
 
     // CreateBlueprint already compiled this BP once while its widget tree was still empty, so that
     // pass only warned about every missing BindWidget. Compile the populated tree as the authoritative
     // pass: a genuinely missing BindWidget now aborts the bake instead of silently saving a broken asset.
-    BP->bIsNewlyCreated = false;
     FKismetEditorUtilities::CompileBlueprint(BP);
     if (BP->Status == BS_Error)
     {
         BP->MarkAsGarbage();
         UE_LOG(LogTemp, Error, TEXT("XmlUI: Blueprint compilation failed for %s (e.g. missing/incompatible BindWidget slots); asset was NOT saved"), *BP->GetName());
         OutError += FString::Printf(TEXT("XmlUI: Blueprint compilation failed for %s (missing/incompatible BindWidget slots); see Output Log for details\n"), *AssetName);
+        return nullptr;
+    }
+
+    if (!VerifyCompiledTextFonts(BP, OutError))
+    {
+        BP->MarkAsGarbage();
         return nullptr;
     }
 
