@@ -1,9 +1,10 @@
-﻿/* Widget Blueprint -> XmlUI DSL serializer. Mirrors FXmlUIBaker's bake direction in reverse; WidgetClassMap reverse lookup is applied first. */
+/* Widget Blueprint -> XmlUI DSL serializer. Mirrors FXmlUIBaker's bake direction in reverse; WidgetClassMap reverse lookup is applied first. */
 
 #include "XmlUIDslExporter.h"
 
 #include "XmlUIBaker.h"
 #include "XmlUISettings.h"
+#include "XmlVisualStyle.h"
 #include "XmlWidgets/XmlButton.h"
 #include "XmlWidgets/XmlPanel.h"
 #include "XmlWidgets/XmlWidget.h"
@@ -1044,6 +1045,12 @@ namespace
         }
 
         AppendClassAttrs(Attrs, InWidget, Tag);
+        TArray<TPair<FString, FString>> VisualAttributes;
+        FXmlVisualStyle::Export(InWidget, Tag, VisualAttributes);
+        for (const TPair<FString, FString>& Attribute : VisualAttributes)
+        {
+            AppendAttr(Attrs, *Attribute.Key, Attribute.Value);
+        }
 
         if (!bIsRoot)
         {

@@ -58,6 +58,12 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI")
     FString Typeface;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI|Visual")
+    FSlateFontInfo Font;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI|Visual")
+    bool bUseVisualFont = false;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI")
     FLinearColor Color = FLinearColor::White;
 
@@ -149,6 +155,12 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI")
     FLinearColor FillColor = FLinearColor::White;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI|Visual")
+    FProgressBarStyle WidgetStyle;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI|Visual")
+    bool bUseVisualWidgetStyle = false;
 
     UFUNCTION(BlueprintCallable, Category="XmlUI")
     void SetXmlPercent(float InPercent);

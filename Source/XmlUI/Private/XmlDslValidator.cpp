@@ -3,6 +3,7 @@
 #include "Components/ScaleBox.h"
 #include "Misc/PackageName.h"
 #include "XmlDslParser.h"
+#include "XmlVisualStyle.h"
 
 namespace
 {
@@ -669,6 +670,19 @@ namespace
                 continue;
             }
 
+            if (Attribute.Key.StartsWith(TEXT("Visual.")))
+            {
+                const FString PropertyName = Attribute.Key.RightChop(7);
+                if (!FXmlVisualStyle::IsSupported(Node.Tag, PropertyName)
+                    || Attribute.Value.IsEmpty())
+                {
+                    OutError += FString::Printf(
+                        TEXT("XmlUI: invalid or unsupported visual attribute '%s' on <%s Name='%s'>\n"),
+                        *Attribute.Key, *Node.Tag, *Node.Name);
+                    return false;
+                }
+                continue;
+            }
             if (!Allowed.Contains(Attribute.Key))
             {
                 OutError += FString::Printf(

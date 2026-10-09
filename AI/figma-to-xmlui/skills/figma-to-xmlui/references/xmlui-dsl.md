@@ -33,6 +33,12 @@ Treat this file as the syntax source of truth. The parser and builder are permis
 
 There is no `Input`, `Slider`, `ListView`, or animation tag. An unknown child tag is skipped. An unknown root tag prevents a usable root from being built.
 
+## Native visual styling
+
+Use `Visual.<PropertyName>` for the full Unreal-serialized value of an allowlisted
+UMG visual property. See [visual-styles.md](visual-styles.md) for coverage and
+precedence. The exporter escapes Unreal struct text for XML automatically.
+
 ## Widget Class Mapping (WidgetClassMap)
 
 `XmlUISettings.WidgetClassMap` maps DSL tags to host widget class paths (for example `Text` → `/Script/SampleGame.SampleTextBlock`). A mapped class only needs to derive from the corresponding standard UMG widget (`UTextBlock`, `UImage`, `UButton`, `UProgressBar`, `USpacer`, `UWrapBox`, `UUniformGridPanel`, and so on); the builder then configures it with the standard APIs. Tags that are not configured use the default controls listed in this reference. Common attributes such as `ColorAndOpacity` apply only to the plugin's default wrapper widgets; when a tag is mapped to a host widget, use the tag-specific attribute (such as `Color`) instead. `XmlUI` is the root alias of `Vertical`: its control mapping inherits the `Vertical` entry of `WidgetClassMap`, so it must not be configured with its own entry.

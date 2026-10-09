@@ -147,6 +147,7 @@ XmlUI.BakeDsl File=<xml路径>
 | 线性槽 | `Padding`, `HAlign`, `VAlign`, `SizeParam` |
 
 - 颜色支持 `#RRGGBB`、`#AARRGGBB` 与 `(R,G,B,A)` 三种写法；需要透明度时建议统一使用 `#AARRGGBB`。
+- 原生 UMG 的字体、笔刷和交互状态可通过白名单中的 `Visual.<PropertyName>` 往返导入导出；详见 DSL 参考文档 `visual-styles.md`。
 - Brush 资源需填写真实对象路径，例如 `Texture2D→/Game/UI/T_Icon.T_Icon`；在资产尚未导入前，可先用纯色占位。
 - `ArtFontSize` 使用插件内置的 Figma 字号映射；不采用该映射的项目请自行换算，并改用 `FontSize`。
 - `FontFamily` 是通用的字体族标识符，通过宿主在 `XmlUISettings.FontFamilyMap` 中的配置解析，键由宿主自定义；与 Figma 协作时通常约定用 Figma 字体族名（如 `PingFang SC`）作为键。未映射或加载失败的字体名回退到引擎默认字体并输出警告。映射值可写完整对象路径（`/Game/Fonts/PingFang.PingFang`）或短包路径；为保证导出往返精确匹配，建议使用完整对象路径。

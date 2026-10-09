@@ -39,6 +39,7 @@
 #include "XmlDslValidator.h"
 #include "XmlFontSizeUtil.h"
 #include "XmlUISettings.h"
+#include "XmlVisualStyle.h"
 #include "XmlWidgets/XmlPanel.h"
 #include "XmlWidgets/XmlWidget.h"
 #include "Misc/FileHelper.h"
@@ -112,7 +113,8 @@ UWidget* UXmlBuilder::BuildFromFile(UUserWidget* Owner, const FString& FilePath,
 
 UWidget* UXmlBuilder::BuildNode(UWidgetTree* Tree, const FXmlNodeDesc& Node, FString& OutError, const TMap<FString, FString>* InWidgetClassMap)
 {
-    return BuildNodeInternal(Tree, Node, OutError, InWidgetClassMap);
+    UWidget* Root = BuildNodeInternal(Tree, Node, OutError, InWidgetClassMap);
+    return OutError.Contains(TEXT("XmlUI: visual style error:")) ? nullptr : Root;
 }
 
 // bOutHasMapping: true when the tag has a configured mapping (even if creation failed).
@@ -1420,6 +1422,17 @@ UWidget* UXmlBuilder::BuildBorderNode(UWidgetTree* Tree, const FXmlNodeDesc& Nod
 }
 
 UWidget* UXmlBuilder::BuildNodeInternal(UWidgetTree* Tree, const FXmlNodeDesc& Node, FString& OutError, const TMap<FString, FString>* InWidgetClassMap)
+{
+    UWidget* Widget = BuildNodeInternalUnstyled(Tree, Node, OutError, InWidgetClassMap);
+    if (Widget && !FXmlVisualStyle::Apply(Widget, Node, OutError))
+    {
+        Widget->RemoveFromParent();
+        return nullptr;
+    }
+    return Widget;
+}
+
+UWidget* UXmlBuilder::BuildNodeInternalUnstyled(UWidgetTree* Tree, const FXmlNodeDesc& Node, FString& OutError, const TMap<FString, FString>* InWidgetClassMap)
 {
     if (!Tree)
     {

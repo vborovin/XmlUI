@@ -75,6 +75,7 @@ When intent is ambiguous, prefer the smallest useful structure and list the omis
 - Use `Overlay` for genuine stacking or limited local positioning, not as a substitute for every layout.
 - Use `SizeBox` when a dimension must be fixed; `DesiredSize` on `Image` is only a desired size.
 - For repeated lists or grids, emit one representative item plus a named host container when runtime code needs to populate it. Do not unroll arbitrary mock data.
+- Preserve native font outlines, button states and background brushes using exported `Visual.*` attributes; see `references/visual-styles.md`.
 - Use a distinct solid-color `Brush` placeholder when an image asset has not been imported. Record the intended asset and replacement API in the XML note instead of inventing an object path.
 
 ### 6. Write the XML

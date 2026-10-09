@@ -21,6 +21,10 @@ void UXmlWidget::ReleaseSlateResources(bool bReleaseChildren)
 
 FSlateFontInfo UXmlTextBlock::BuildFontInfo() const
 {
+    if (bUseVisualFont)
+    {
+        return Font;
+    }
     const int32 EffectiveSize = (ArtFontSize >= 0) ? GetXmlFontSizeByArtFontSize(ArtFontSize) : FontSize;
 
     UFont* FontObject = nullptr;
@@ -154,10 +158,20 @@ void UXmlSpacer::ReleaseSlateResources(bool bReleaseChildren)
 
 TSharedRef<SWidget> UXmlProgressBar::BuildSlateWidget()
 {
-    MyProgressBar = SNew(SProgressBar)
-        .Percent(Percent)
-        .FillColorAndOpacity(FillColor)
-        .BarFillType(EProgressBarFillType::LeftToRight);
+    if (bUseVisualWidgetStyle)
+    {
+        MyProgressBar = SNew(SProgressBar)
+            .Style(&WidgetStyle)
+            .Percent(Percent)
+            .FillColorAndOpacity(FillColor);
+    }
+    else
+    {
+        MyProgressBar = SNew(SProgressBar)
+            .Percent(Percent)
+            .FillColorAndOpacity(FillColor)
+            .BarFillType(EProgressBarFillType::LeftToRight);
+    }
     return MyProgressBar.ToSharedRef();
 }
 

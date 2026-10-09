@@ -32,6 +32,12 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI")
     FString FontFamily;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI|Visual")
+    FButtonStyle WidgetStyle;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI|Visual")
+    bool bUseVisualWidgetStyle = false;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="XmlUI")
     FMargin ContentPadding = FMargin(8.f, 4.f);
 

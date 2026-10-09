@@ -40,6 +40,7 @@ public:
 
 private:
     static UWidget* BuildNodeInternal(UWidgetTree* Tree, const FXmlNodeDesc& Node, FString& OutError, const TMap<FString, FString>* InWidgetClassMap);
+    static UWidget* BuildNodeInternalUnstyled(UWidgetTree* Tree, const FXmlNodeDesc& Node, FString& OutError, const TMap<FString, FString>* InWidgetClassMap);
 
     static UWidget* BuildPanelNode(UWidgetTree* Tree, const FXmlNodeDesc& Node, FString& OutError, const TMap<FString, FString>* InWidgetClassMap);
 

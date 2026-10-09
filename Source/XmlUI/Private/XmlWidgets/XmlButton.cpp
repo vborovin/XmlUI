@@ -31,7 +31,7 @@ TSharedRef<SWidget> UXmlButton::RebuildWidget()
     MyButton = SNew(SButton)
         .OnClicked(BIND_UOBJECT_DELEGATE(FOnClicked, SlateHandleClicked))
         .ButtonStyle(&GetButtonStyle())
-        .ButtonColorAndOpacity(ButtonColor)
+        .ButtonColorAndOpacity(bUseVisualWidgetStyle ? FLinearColor::White : ButtonColor)
         .ForegroundColor(TextColor)
         .ContentPadding(ContentPadding)
         .Content()[ ButtonContent ];
@@ -95,6 +95,11 @@ FReply UXmlButton::SlateHandleClicked()
 
 const FButtonStyle& UXmlButton::GetButtonStyle()
 {
+    if (bUseVisualWidgetStyle)
+    {
+        ButtonStyleCache = WidgetStyle;
+        return ButtonStyleCache;
+    }
     const FButtonStyle& BaseStyle = FCoreStyle::Get().GetWidgetStyle<FButtonStyle>("Button");
     ButtonStyleCache = BaseStyle;
 
