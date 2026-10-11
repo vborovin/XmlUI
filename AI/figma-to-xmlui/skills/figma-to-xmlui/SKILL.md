@@ -120,13 +120,12 @@ Follow all type and include rules in [references/cpp-contract.md](references/cpp
 
 ### 8. Update an Existing Widget Blueprint
 
-Bake (DSL→WBP) and Export (WBP→DSL) are inverse operations, so an existing Widget Blueprint can be updated incrementally:
+1. Export the saved existing WBP: `XmlUI.ExportWbp Wbp=<asset path> Out=<xml path>`.
+2. Edit the XML and keep the original `ParentClass`.
+3. Run `XmlUI.RebakePreview Wbp=<asset path> File=<xml path>` outside PIE.
+4. Review the `CHANGE` diff and the `MANUAL-CONFLICT` report. `READY` means no baseline conflict was detected, not that updating the asset is safe to do automatically.
 
-1. Export the existing WBP to DSL: `XmlUI.ExportWbp Wbp=<asset path> Out=<xml path>` (or the editor menu "XmlUI: Export WBP to DSL").
-2. Modify the XML as needed.
-3. Bake it back: `XmlUI.BakeDsl File=<xml path>` (or the editor menu).
-
-Important constraint: the baker does not overwrite an existing asset. Before writing back to the same asset name, delete or rename the old asset first, or choose a new output path. The exported content includes the asset's embedded `XmlUI.SourceDsl` metadata for cross-checking.
+The preview compiles and reloads a disposable candidate WBP, leaves the original untouched, and compares a rebuilt previous source baseline when `XmlUI.SourceDsl` is present and valid. It deletes temporary assets (this may clear editor Undo history). `UNMANAGED` means the original WBP lacks a trustworthy baseline. The baker still refuses to overwrite existing assets; do not delete or rename an in-use WBP as a shortcut, because references and Blueprint graphs can be lost. In-place Re-bake Apply is not yet implemented.
 
 ### 9. Validate and Report
 

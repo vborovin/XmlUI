@@ -123,6 +123,19 @@ XmlUI.ValidateRoundTrip Wbp=/Game/UI/WBP_ListEntry
 
 XmlUI exports the original, bakes and saves a GUID-named disposable WBP, reloads it from disk and compares the two exported XML trees. Differences include widget paths, attributes and the changed serialized values; reloaded compiled text fonts are checked separately. The source WBP is never modified. Save the WBP before running this command. A temporary asset is deleted after validation; failed cleanup is logged with its exact asset path. Unreal asset deletion may clear editor Undo history. This checks the **supported exported DSL surface**, not arbitrary animations, bindings or unexported UPROPERTYs.
 
+
+**7. Preview a safe Re-bake (read-only for the source WBP)**
+
+After editing the exported XML, run this outside PIE:
+
+```text
+XmlUI.RebakePreview Wbp=/Game/UI/WBP_ListEntry File=/absolute/path/ListEntry.xml
+```
+
+The command compiles, saves and reloads a **temporary candidate WBP**. It compares the normalized exported source WBP with the staged candidate (widget hierarchy, names, classes, attributes, native `Visual.*` styles). When the existing WBP carries valid `XmlUI.SourceDsl` metadata, it independently rebakes that old source and compares the result to the current WBP to flag manual changes since the last bake. Reports use `CHANGE`, `MANUAL-CONFLICT`, and `READY` / `CONFLICT` / `UNMANAGED` statuses.
+
+This is **preview-only**: the source WBP and its Blueprint graphs are not changed. It creates and deletes temporary assets, which can clear editor Undo history. `UNMANAGED` means conflict detection cannot be trusted for that asset. No existing WBP is overwritten; automatic in-place Apply is not yet available.
+
 Baked Widget Blueprint assets carry the package metadata `XmlUI.SourceDsl`, `XmlUI.SourceHash`, and `XmlUI.BakeVersion` — the original DSL text plus its MD5 — as a baseline for future incremental updates.
 
 ### DSL Reference

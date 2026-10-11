@@ -123,6 +123,19 @@ XmlUI.ValidateRoundTrip Wbp=/Game/UI/WBP_ListEntry
 
 XmlUI 会导出原始 WBP，生成并保存唯一命名的临时 WBP，重新从磁盘加载并比较两份导出的 XML 树。差异报告包含控件路径、属性和序列化数值；同时检查重新加载的编译模板中的文本字体。原始 WBP 不会被修改。运行前必须保存源 WBP。验证结束后会删除临时资产，清理失败时会记录准确路径。Unreal 删除资产时可能清除编辑器的撤销历史。此命令验证的是**可导出的 DSL 属性范围**，不覆盖动画、任意绑定或未导出的 UPROPERTY。
 
+
+**7. 安全重建预览（不更改源 WBP）**
+
+修改导出的 XML 后，在非 PIE 状态运行：
+
+```text
+XmlUI.RebakePreview Wbp=/Game/UI/WBP_ListEntry File=/absolute/path/ListEntry.xml
+```
+
+命令会生成、编译、保存并重新加载**临时候选 WBP**，比较现有 WBP 与候选的控件层次、名称、类、属性及原生 `Visual.*` 样式。如果已有 WBP 含有效的 `XmlUI.SourceDsl` 元数据，还会将上次的源 XML 单独重建，并与当前 WBP 比较，识别可能的手工修改。日志包含 `CHANGE`、`MANUAL-CONFLICT` 以及 `READY` / `CONFLICT` / `UNMANAGED` 状态。
+
+本功能**仅预览**，不会修改源 WBP 或其 Blueprint 图表。临时资产会被删除，此过程可能清空编辑器 Undo 历史。`UNMANAGED` 表示无法可靠地检查冲突。当前尚不支持直接覆盖现有 WBP。
+
 烘焙出的 Widget Blueprint 资产带有 `XmlUI.SourceDsl`、`XmlUI.SourceHash`、`XmlUI.BakeVersion` 包元数据（源 DSL 原文 + MD5），为未来的增量更新提供基线。
 
 ### DSL Reference

@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Editor-only `XmlUI.RebakePreview` dry-run: stage candidate through bake/compile/save/reload, report normalized widget/property diff, compare saved XmlUI baseline to detect manual changes, never modify source WBP.
+- Automated diff regression test (`XmlUI.RebakePreview.Diff`).
 - Editor-only `XmlUI.ValidateRoundTrip` console command: export, bake, compile, save, reload and compare the serialized DSL surface with widget/attribute diagnostics; verify reloaded compiled text fonts.
 - Automated node comparison regression test (`XmlUI.RoundTrip.NodeCompare`).
 - Allowlisted native visual properties round-trip through `Visual.*` DSL attributes.
