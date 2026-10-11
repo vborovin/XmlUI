@@ -125,7 +125,7 @@ Follow all type and include rules in [references/cpp-contract.md](references/cpp
 3. Run `XmlUI.RebakePreview Wbp=<asset path> File=<xml path>` outside PIE.
 4. Review the `CHANGE` diff and the `MANUAL-CONFLICT` report. `READY` means no baseline conflict was detected, not that updating the asset is safe to do automatically.
 
-The preview compiles and reloads a disposable candidate WBP, leaves the original untouched, and compares a rebuilt previous source baseline when `XmlUI.SourceDsl` is present and valid. It deletes temporary assets (this may clear editor Undo history). `UNMANAGED` means the original WBP lacks a trustworthy baseline. The baker still refuses to overwrite existing assets; do not delete or rename an in-use WBP as a shortcut, because references and Blueprint graphs can be lost. In-place Re-bake Apply is not yet implemented.
+The preview compiles and reloads a disposable candidate WBP, leaves the original untouched, and compares a rebuilt previous source baseline when `XmlUI.SourceDsl` is present and valid. It deletes temporary assets (this may clear editor Undo history). `UNMANAGED` means the original WBP lacks a trustworthy baseline. The baker still refuses to overwrite existing assets; do not delete or rename an in-use WBP as a shortcut, because references and Blueprint graphs can be lost. In-place property-only Apply is available experimentally via `XmlUI.RebakeApply Wbp=<asset path> File=<xml path> Confirm=YES`, after a successful `READY` preview. It rejects structural, unsupported or unmanaged changes, saves a persistent .uasset backup, and attempts rollback on failure. Test on a duplicate WBP first. It preserves existing Blueprint graphs and the asset path, but does not merge graph edits.
 
 ### 9. Validate and Report
 

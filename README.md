@@ -136,6 +136,19 @@ The command compiles, saves and reloads a **temporary candidate WBP**. It compar
 
 This is **preview-only**: the source WBP and its Blueprint graphs are not changed. It creates and deletes temporary assets, which can clear editor Undo history. `UNMANAGED` means conflict detection cannot be trusted for that asset. No existing WBP is overwritten; automatic in-place Apply is not yet available.
 
+
+**8. Apply property-only changes to an existing WBP (experimental)**
+
+After a `READY` preview, close PIE, save the original WBP and run:
+
+```text
+XmlUI.RebakeApply Wbp=/Game/UI/WBP_ListEntry File=/absolute/path/ListEntry.xml Confirm=YES
+```
+
+This command repeats the preview and conflict checks, compiles and reloads a disposable candidate, checks that the widget hierarchy and classes are unchanged, and only then copies allowlisted properties **onto existing widget instances**. The initial allowlist covers `Text`, text `Color`, `FontSize` / `FontPath` / `Typeface`, `Visibility`, `RenderOpacity` and valid native `Visual.*` properties. Layout-slot changes, renames, changes to widget hierarchy/classes, `Default.*` changes, unsupported attributes, untracked/unmanaged assets, and manually changed exported properties are rejected.
+
+Before changing the WBP, XmlUI saves a separate backup of the original `.uasset` in `Saved/XmlUIBackups/`. The update keeps the original asset path, widget objects and Blueprint graphs, recompiles, and rejects a mismatch against the staged exported properties. Failed applications attempt a memory rollback and package reload; if recovery fails, the retained backup is reported in the log. A successful save updates `XmlUI.SourceDsl` / `XmlUI.SourceHash`. The temporary candidate is deleted afterward; editor Undo history can be cleared by asset cleanup. This is **experimental** and should first be exercised on a duplicate/test WBP. It does not merge Blueprint graph edits or support structural changes.
+
 Baked Widget Blueprint assets carry the package metadata `XmlUI.SourceDsl`, `XmlUI.SourceHash`, and `XmlUI.BakeVersion` — the original DSL text plus its MD5 — as a baseline for future incremental updates.
 
 ### DSL Reference
