@@ -137,7 +137,7 @@ XmlUI.RebakePreview Wbp=/Game/UI/WBP_ListEntry File=/absolute/path/ListEntry.xml
 本功能**仅预览**，不会修改源 WBP 或其 Blueprint 图表。临时资产会被删除，此过程可能清空编辑器 Undo 历史。`UNMANAGED` 表示无法可靠地检查冲突。当前尚不支持直接覆盖现有 WBP。
 
 
-**8. 将属性改动应用到现有 WBP（实验性）**
+**8. 将属性和有限结构改动应用到现有 WBP（实验性）**
 
 确认预览结果为 `READY`，退出 PIE 并保存 WBP 后运行：
 
@@ -145,9 +145,9 @@ XmlUI.RebakePreview Wbp=/Game/UI/WBP_ListEntry File=/absolute/path/ListEntry.xml
 XmlUI.RebakeApply Wbp=/Game/UI/WBP_ListEntry File=/absolute/path/ListEntry.xml Confirm=YES
 ```
 
-命令会重新执行预览及冲突检测，编译和重新加载临时候选 WBP，确认节点层次和类型未更改，然后**只修改现有控件对象的允许属性**。初始白名单包含 `Text`、文本 `Color`、`FontSize` / `FontPath` / `Typeface`、`Visibility`、`RenderOpacity` 与受支持的原生 `Visual.*` 属性。布局插槽变化、重命名、层次与控件类变化、`Default.*` 改动、不受支持的属性、无有效管理基线的资产以及手工修改的导出属性都将被拒绝。
+命令会重新执行预览和冲突检测，编译并重新加载临时候选 WBP。**属性模式**允许更改 `Text`、文本 `Color`、`FontSize` / `FontPath` / `Typeface`、`Visibility`、`RenderOpacity` 和支持的原生 `Visual.*`。**有限结构模式**支持在现有 `VerticalBox`、`HorizontalBox` 和 `Overlay` 中新增无子节点的 `Text`、`Image`、`Spacer`，以及调整这些容器中子节点的顺序；原有控件对象和插槽保持不变，新控件的插槽来自经过编译的候选 WBP。一次 Apply 不允许混合属性与结构更改。删除、跨容器移动、重命名、修改已有控件类和属性、修改已有插槽属性、`Default.*` 改动、不支持的容器及无可靠基线或有冲突的资产均被拒绝。
 
-修改前 XmlUI 会把原始 `.uasset` 单独备份到 `Saved/XmlUIBackups/`。应用会保留原有资产路径、控件对象和 Blueprint 图表，重新编译后与临时候选的导出结果比对。失败时尝试恢复内存状态并重新加载资产；若恢复失败，日志保留备份文件路径。保存成功后更新 `XmlUI.SourceDsl` / `XmlUI.SourceHash`。最后清理临时资产，可能清空编辑器的 Undo 历史。此功能**仍属实验性**，请先在复制的测试 WBP 上验证；不支持 Blueprint 图表合并或结构调整。
+修改前 XmlUI 会把原始 `.uasset` 单独备份到 `Saved/XmlUIBackups/`。应用会保留原有资产路径、控件对象和 Blueprint 图表，重新编译后与临时候选的导出结果比对。失败时尝试恢复内存状态并重新加载资产；若恢复失败，日志保留备份文件路径。保存成功后更新 `XmlUI.SourceDsl` / `XmlUI.SourceHash`。最后清理临时资产，可能清空编辑器的 Undo 历史。此功能**仍属实验性**，请先在复制的测试 WBP 上验证；不支持 Blueprint 图表合并、删除控件和跨容器移动。结构操作会检查编译后的控件树。结构模式尚未在 UE5.8 下实际验证，请先在可丢弃的测试 WBP 上测试，不要直接操作不可替代的正式资产。
 
 烘焙出的 Widget Blueprint 资产带有 `XmlUI.SourceDsl`、`XmlUI.SourceHash`、`XmlUI.BakeVersion` 包元数据（源 DSL 原文 + MD5），为未来的增量更新提供基线。
 

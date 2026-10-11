@@ -6,6 +6,11 @@
 #include "Blueprint/WidgetTree.h"
 #include "Blueprint/WidgetBlueprintGeneratedClass.h"
 #include "Components/TextBlock.h"
+#include "Components/PanelWidget.h"
+#include "Components/PanelSlot.h"
+#include "Components/HorizontalBox.h"
+#include "Components/VerticalBox.h"
+#include "Components/Overlay.h"
 #include "FileHelpers.h"
 #include "Fonts/SlateFontInfo.h"
 #include "HAL/PlatformFileManager.h"
@@ -102,20 +107,39 @@ namespace
             }
         }
 
-        const int32 CommonCount = FMath::Min(Before.Children.Num(), After.Children.Num());
-        for (int32 Index = 0; Index < CommonCount; ++Index)
+        // Match by stable widget name, not by position: moving B before A must
+        // not masquerade as a rename or as an A->B property change.
+        TMap<FString, int32> NewIndices;
+        for (int32 I = 0; I < After.Children.Num(); ++I)
         {
-            DiffNodes(Before.Children[Index], After.Children[Index], Path, Diff);
+            NewIndices.Add(After.Children[I].Name, I);
         }
-        for (int32 Index = CommonCount; Index < Before.Children.Num(); ++Index)
+        TSet<FString> OldNames;
+        for (int32 I = 0; I < Before.Children.Num(); ++I)
         {
-            Diff.Add(FString::Printf(TEXT("%s: removed child <%s Name=%s>"),
-                *Path, *Before.Children[Index].Tag, *Before.Children[Index].Name), true);
+            const FXmlNodeDesc& Child = Before.Children[I];
+            OldNames.Add(Child.Name);
+            const int32* OtherIndex = NewIndices.Find(Child.Name);
+            if (!OtherIndex)
+            {
+                Diff.Add(FString::Printf(TEXT("%s: removed child <%s Name=%s>"),
+                    *Path, *Child.Tag, *Child.Name), true);
+                continue;
+            }
+            if (I != *OtherIndex)
+            {
+                Diff.Add(FString::Printf(TEXT("%s/%s: index %d -> %d"),
+                    *Path, *Child.Name, I, *OtherIndex), true);
+            }
+            DiffNodes(Child, After.Children[*OtherIndex], Path, Diff);
         }
-        for (int32 Index = CommonCount; Index < After.Children.Num(); ++Index)
+        for (const FXmlNodeDesc& Child : After.Children)
         {
-            Diff.Add(FString::Printf(TEXT("%s: added child <%s Name=%s>"),
-                *Path, *After.Children[Index].Tag, *After.Children[Index].Name), true);
+            if (!OldNames.Contains(Child.Name))
+            {
+                Diff.Add(FString::Printf(TEXT("%s: added child <%s Name=%s>"),
+                    *Path, *Child.Tag, *Child.Name), true);
+            }
         }
     }
 
@@ -577,6 +601,276 @@ namespace
         return true;
     }
 
+
+    struct FStructuralNode
+    {
+        const FXmlNodeDesc* Node = nullptr;
+        FString ParentName;
+    };
+
+    void IndexStructuralNodes(const FXmlNodeDesc& Node, const FString& Parent,
+        TMap<FString, FStructuralNode>& Index)
+    {
+        FStructuralNode Entry;
+        Entry.Node = &Node;
+        Entry.ParentName = Parent;
+        Index.Add(Node.Name, Entry);
+        for (const FXmlNodeDesc& Child : Node.Children)
+        {
+            IndexStructuralNodes(Child, Node.Name, Index);
+        }
+    }
+
+    bool SameAttributes(const FXmlNodeDesc& A, const FXmlNodeDesc& B)
+    {
+        if (A.Attributes.Num() != B.Attributes.Num())
+        {
+            return false;
+        }
+        for (const TPair<FString, FString>& Pair : A.Attributes)
+        {
+            const FString* Value = B.Attributes.Find(Pair.Key);
+            if (!Value || *Value != Pair.Value)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool IsSupportedStructuralParent(const UWidget* Widget)
+    {
+        return Widget && (Widget->IsA<UVerticalBox>()
+            || Widget->IsA<UHorizontalBox>() || Widget->IsA<UOverlay>());
+    }
+
+    bool ValidateStructuralPlan(const FXmlNodeDesc& Before, const FXmlNodeDesc& After,
+        const UWidgetTree* ExistingTree, const UWidgetTree* CandidateTree,
+        int32& Added, int32& Reordered, FString& Error)
+    {
+        Added = 0;
+        Reordered = 0;
+        TMap<FString, FStructuralNode> Old, New;
+        IndexStructuralNodes(Before, FString(), Old);
+        IndexStructuralNodes(After, FString(), New);
+        if (Old.Num() == 0
+            || Before.Name != After.Name || Before.Tag != After.Tag)
+        {
+            Error = TEXT("root identity changed");
+            return false;
+        }
+
+        for (const TPair<FString, FStructuralNode>& Pair : Old)
+        {
+            const FStructuralNode* Candidate = New.Find(Pair.Key);
+            if (!Candidate)
+            {
+                Error = FString::Printf(TEXT("deleted widget '%s' (deletion is not supported)"), *Pair.Key);
+                return false;
+            }
+            if (Candidate->ParentName != Pair.Value.ParentName)
+            {
+                Error = FString::Printf(TEXT("widget '%s' was reparented (not supported)"), *Pair.Key);
+                return false;
+            }
+            if (Candidate->Node->Tag != Pair.Value.Node->Tag
+                || !SameAttributes(*Candidate->Node, *Pair.Value.Node))
+            {
+                Error = FString::Printf(
+                    TEXT("existing widget '%s' has a tag or property change; do property-only Apply separately"),
+                    *Pair.Key);
+                return false;
+            }
+            if (const UWidget* OldWidget = ExistingTree->FindWidget(FName(*Pair.Key)))
+            {
+                const UWidget* NewWidget = CandidateTree->FindWidget(FName(*Pair.Key));
+                if (!NewWidget || OldWidget->GetClass() != NewWidget->GetClass())
+                {
+                    Error = FString::Printf(TEXT("widget '%s' changed its UClass"), *Pair.Key);
+                    return false;
+                }
+            }
+            else
+            {
+                Error = FString::Printf(TEXT("widget '%s' not found in existing tree"), *Pair.Key);
+                return false;
+            }
+        }
+
+        for (const TPair<FString, FStructuralNode>& Pair : New)
+        {
+            if (Old.Contains(Pair.Key))
+            {
+                continue;
+            }
+            const FXmlNodeDesc& Node = *Pair.Value.Node;
+            if (!Node.Children.IsEmpty()
+                || (Node.Tag != TEXT("Text") && Node.Tag != TEXT("Image")
+                    && Node.Tag != TEXT("Spacer")))
+            {
+                Error = FString::Printf(TEXT("new '%s' must be a leaf Text, Image or Spacer"), *Pair.Key);
+                return false;
+            }
+            const FStructuralNode* Parent = Old.Find(Pair.Value.ParentName);
+            UWidget* ExistingParent = ExistingTree->FindWidget(FName(*Pair.Value.ParentName));
+            const UWidget* StageParent = CandidateTree->FindWidget(FName(*Pair.Value.ParentName));
+            const UWidget* StageChild = CandidateTree->FindWidget(FName(*Pair.Key));
+            UPanelWidget* Panel = Cast<UPanelWidget>(ExistingParent);
+            const UPanelWidget* SourcePanel = Cast<UPanelWidget>(StageParent);
+            if (!Parent || !Panel || !SourcePanel
+                || !IsSupportedStructuralParent(Panel)
+                || Panel->GetClass() != SourcePanel->GetClass()
+                || !StageChild || !StageChild->Slot
+                || StageChild->Slot->GetClass() != Panel->GetSlotClass())
+            {
+                Error = FString::Printf(TEXT("new '%s' needs a supported existing panel and a compatible slot"),
+                    *Pair.Key);
+                return false;
+            }
+            ++Added;
+        }
+
+        // Reorder only inside existing supported panels; no cross-parent moves.
+        for (const TPair<FString, FStructuralNode>& Pair : Old)
+        {
+            const FStructuralNode& Desired = New.FindChecked(Pair.Key);
+            const FXmlNodeDesc& OldNode = *Pair.Value.Node;
+            const FXmlNodeDesc& NewNode = *Desired.Node;
+            bool bChangedOrder = OldNode.Children.Num() != NewNode.Children.Num();
+            for (int32 I = 0; I < FMath::Min(OldNode.Children.Num(), NewNode.Children.Num()); ++I)
+            {
+                bChangedOrder |= OldNode.Children[I].Name != NewNode.Children[I].Name;
+            }
+            if (!bChangedOrder)
+            {
+                continue;
+            }
+            UPanelWidget* Panel = Cast<UPanelWidget>(
+                ExistingTree->FindWidget(FName(*Pair.Key)));
+            if (!Panel || !IsSupportedStructuralParent(Panel))
+            {
+                Error = FString::Printf(TEXT("cannot change children of unsupported panel '%s'"), *Pair.Key);
+                return false;
+            }
+            if (Panel->GetChildrenCount() != OldNode.Children.Num())
+            {
+                Error = FString::Printf(TEXT("existing panel '%s' child count does not match source XML"),
+                    *Pair.Key);
+                return false;
+            }
+            ++Reordered;
+        }
+        return true;
+    }
+
+    bool ApplyStructuralPlan(const FXmlNodeDesc& Before, const FXmlNodeDesc& After,
+        UWidgetTree* ExistingTree, UWidgetTree* CandidateTree, FString& Error)
+    {
+        TMap<FString, FStructuralNode> Old, New;
+        IndexStructuralNodes(Before, FString(), Old);
+        IndexStructuralNodes(After, FString(), New);
+
+        // One pass per panel, including inserted children at their intended indices.
+        for (const TPair<FString, FStructuralNode>& Pair : Old)
+        {
+            const FXmlNodeDesc& OldNode = *Pair.Value.Node;
+            const FXmlNodeDesc& Desired = *New.FindChecked(Pair.Key).Node;
+            bool bChanged = OldNode.Children.Num() != Desired.Children.Num();
+            for (int32 I = 0; I < FMath::Min(OldNode.Children.Num(), Desired.Children.Num()); ++I)
+            {
+                bChanged |= OldNode.Children[I].Name != Desired.Children[I].Name;
+            }
+            if (!bChanged)
+            {
+                continue;
+            }
+            UPanelWidget* Panel = Cast<UPanelWidget>(
+                ExistingTree->FindWidget(FName(*Pair.Key)));
+            if (!Panel)
+            {
+                Error = FString::Printf(TEXT("panel '%s' disappeared"), *Pair.Key);
+                return false;
+            }
+            Panel->Modify();
+            for (int32 I = 0; I < Desired.Children.Num(); ++I)
+            {
+                const FString& Name = Desired.Children[I].Name;
+                UWidget* Existing = ExistingTree->FindWidget(FName(*Name));
+                if (!Existing)
+                {
+                    UWidget* StageWidget = CandidateTree->FindWidget(FName(*Name));
+                    if (!StageWidget || !StageWidget->Slot)
+                    {
+                        Error = FString::Printf(TEXT("new staged widget '%s' has no slot"), *Name);
+                        return false;
+                    }
+                    Existing = DuplicateObject<UWidget>(StageWidget, ExistingTree, FName(*Name));
+                    if (!Existing || !Panel->InsertChildAt(I, Existing, StageWidget->Slot))
+                    {
+                        Error = FString::Printf(TEXT("cannot insert '%s' into '%s'"), *Name, *Pair.Key);
+                        return false;
+                    }
+                }
+                else if (Panel->GetChildAt(I) != Existing)
+                {
+                    if (!Panel->HasChild(Existing))
+                    {
+                        Error = FString::Printf(TEXT("existing '%s' is no longer child of '%s'"),
+                            *Name, *Pair.Key);
+                        return false;
+                    }
+                    Panel->ShiftChild(I, Existing);
+                }
+                if (Panel->GetChildAt(I) != Existing)
+                {
+                    Error = FString::Printf(TEXT("insertion/reorder mismatch for '%s'"), *Name);
+                    return false;
+                }
+            }
+            if (Panel->GetChildrenCount() != Desired.Children.Num())
+            {
+                Error = FString::Printf(TEXT("panel '%s' has an unexpected child count"), *Pair.Key);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool CompareGeneratedStructure(const UWidget* Actual, const UWidget* Desired,
+        FString& Error)
+    {
+        if (!Actual || !Desired || Actual->GetFName() != Desired->GetFName()
+            || Actual->GetClass() != Desired->GetClass())
+        {
+            Error = TEXT("generated widget name or class mismatch");
+            return false;
+        }
+        const UPanelWidget* ActualPanel = Cast<UPanelWidget>(Actual);
+        const UPanelWidget* DesiredPanel = Cast<UPanelWidget>(Desired);
+        if (static_cast<bool>(ActualPanel) != static_cast<bool>(DesiredPanel))
+        {
+            Error = FString::Printf(TEXT("%s: generated panel class mismatch"), *Actual->GetName());
+            return false;
+        }
+        if (ActualPanel)
+        {
+            if (ActualPanel->GetChildrenCount() != DesiredPanel->GetChildrenCount())
+            {
+                Error = FString::Printf(TEXT("%s: generated child count mismatch"), *Actual->GetName());
+                return false;
+            }
+            for (int32 I = 0; I < ActualPanel->GetChildrenCount(); ++I)
+            {
+                if (!CompareGeneratedStructure(ActualPanel->GetChildAt(I),
+                    DesiredPanel->GetChildAt(I), Error))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     bool Apply(const FString& WbpPath, const FString& XmlPath, const FString& Confirmation)
     {
         if (Confirmation != TEXT("YES"))
@@ -639,16 +933,24 @@ namespace
 
         FXmlRebakeDiff Change;
         DiffNodes(Before, Staged, FString(), Change);
-        if (Change.bStructureChanged)
+        UWidgetBlueprint* StagedBP = LoadObject<UWidgetBlueprint>(nullptr, *AssetPath);
+        if (!StagedBP || !StagedBP->WidgetTree)
         {
-            UE_LOG(LogTemp, Error, TEXT("XmlUI Re-bake Apply: structural modifications are not supported"));
-            PrintDiff(TEXT("REJECTED"), Change);
+            UE_LOG(LogTemp, Error, TEXT("XmlUI Re-bake Apply: staged WidgetTree not found"));
             return false;
         }
-        UWidgetBlueprint* StagedBP = LoadObject<UWidgetBlueprint>(nullptr, *AssetPath);
-        if (!StagedBP || !StagedBP->WidgetTree
-            || !CopyChangedProperties(Before, Staged, Original->WidgetTree,
-                StagedBP->WidgetTree, true, Error))
+        int32 Added = 0, Reordered = 0;
+        if (Change.bStructureChanged)
+        {
+            if (!ValidateStructuralPlan(Before, Staged, Original->WidgetTree,
+                StagedBP->WidgetTree, Added, Reordered, Error))
+            {
+                UE_LOG(LogTemp, Error, TEXT("XmlUI Re-bake Apply: structural change rejected: %s"), *Error);
+                return false;
+            }
+        }
+        else if (!CopyChangedProperties(Before, Staged, Original->WidgetTree,
+            StagedBP->WidgetTree, true, Error))
         {
             UE_LOG(LogTemp, Error, TEXT("XmlUI Re-bake Apply: preflight failed: %s"), *Error);
             return false;
@@ -681,18 +983,26 @@ namespace
         TArray<UWidget*> ExistingWidgets;
         Original->WidgetTree->GetAllWidgets(ExistingWidgets);
         for (UWidget* Widget : ExistingWidgets) Widget->Modify();
+        TMap<FName, UWidget*> OriginalIdentities;
+        for (UWidget* Widget : ExistingWidgets)
+        {
+            OriginalIdentities.Add(Widget->GetFName(), Widget);
+        }
 
         const auto Rollback = [&](const FString& Reason, bool bRestoreDisk) -> bool
         {
             Transaction.Cancel();
             FString RestoreError;
-            if (!CopyChangedProperties(Before, Staged, Original->WidgetTree,
-                Snapshot.Get(), false, RestoreError))
+            if (!Change.bStructureChanged)
             {
-                UE_LOG(LogTemp, Error, TEXT("XmlUI Re-bake Apply: in-memory rollback failed: %s"),
-                    *RestoreError);
+                if (!CopyChangedProperties(Before, Staged, Original->WidgetTree,
+                    Snapshot.Get(), false, RestoreError))
+                {
+                    UE_LOG(LogTemp, Error, TEXT("XmlUI Re-bake Apply: in-memory rollback failed: %s"),
+                        *RestoreError);
+                }
+                FKismetEditorUtilities::CompileBlueprint(Original);
             }
-            FKismetEditorUtilities::CompileBlueprint(Original);
             Metadata.SetValue(Original, TEXT("XmlUI.SourceDsl"), *Baseline);
             Metadata.SetValue(Original, TEXT("XmlUI.SourceHash"), *BaselineHash);
             if (bRestoreDisk && !FPlatformFileManager::Get().GetPlatformFile()
@@ -713,18 +1023,62 @@ namespace
             return false;
         };
 
-        if (!CopyChangedProperties(Before, Staged, Original->WidgetTree,
-            StagedBP->WidgetTree, false, Error))
+        if (Change.bStructureChanged)
         {
-            return Rollback(Error, false);
+            if (!ApplyStructuralPlan(Before, Staged, Original->WidgetTree,
+                StagedBP->WidgetTree, Error))
+            {
+                return Rollback(Error, false);
+            }
+            for (const TPair<FName, UWidget*>& Pair : OriginalIdentities)
+            {
+                if (Original->WidgetTree->FindWidget(Pair.Key) != Pair.Value)
+                {
+                    return Rollback(FString::Printf(TEXT("existing widget '%s' lost UObject identity"),
+                        *Pair.Key.ToString()), false);
+                }
+            }
+            FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Original);
         }
-
-        FBlueprintEditorUtils::MarkBlueprintAsModified(Original);
+        else
+        {
+            if (!CopyChangedProperties(Before, Staged, Original->WidgetTree,
+                StagedBP->WidgetTree, false, Error))
+            {
+                return Rollback(Error, false);
+            }
+            FBlueprintEditorUtils::MarkBlueprintAsModified(Original);
+        }
         FKismetEditorUtilities::CompileBlueprint(Original);
+        const UWidgetBlueprintGeneratedClass* RebuiltClass =
+            Cast<UWidgetBlueprintGeneratedClass>(Original->GeneratedClass);
+        const UWidgetBlueprintGeneratedClass* StagedClass =
+            Cast<UWidgetBlueprintGeneratedClass>(StagedBP->GeneratedClass);
+        const UWidgetTree* RebuiltTree =
+            RebuiltClass ? RebuiltClass->GetWidgetTreeArchetype() : nullptr;
+        const UWidgetTree* DesiredTree =
+            StagedClass ? StagedClass->GetWidgetTreeArchetype() : nullptr;
+        const bool bStructureValid = !Change.bStructureChanged
+            || (RebuiltTree && DesiredTree && CompareGeneratedStructure(
+                RebuiltTree->RootWidget, DesiredTree->RootWidget, Error));
         if (Original->Status == BS_Error || !VerifyTextTemplates(Original, Error)
-            || !VerifyCompiledChanges(Before, Staged, Original, StagedBP, Error))
+            || !bStructureValid
+            || (!Change.bStructureChanged
+                && !VerifyCompiledChanges(Before, Staged, Original, StagedBP, Error)))
         {
             return Rollback(Error.IsEmpty() ? TEXT("Blueprint compilation failed") : Error, false);
+        }
+        // Structural compilation must not invalidate any existing widget object.
+        if (Change.bStructureChanged)
+        {
+            for (const TPair<FName, UWidget*>& Pair : OriginalIdentities)
+            {
+                if (Original->WidgetTree->FindWidget(Pair.Key) != Pair.Value)
+                {
+                    return Rollback(FString::Printf(TEXT("compile replaced existing widget '%s'"),
+                        *Pair.Key.ToString()), false);
+                }
+            }
         }
 
         if (!FXmlUIDslExporter::ExportWbpToDslFile(WbpPath, AppliedFile)
@@ -752,8 +1106,8 @@ namespace
         }
 
         UE_LOG(LogTemp, Display,
-            TEXT("XmlUI Re-bake Apply: SUCCESS — %d properties; original WBP kept, backup=%s"),
-            Change.Changed, *BackupFile);
+            TEXT("XmlUI Re-bake Apply: SUCCESS — %d changes (added=%d, modifiedPanels=%d); original WBP kept, backup=%s"),
+            Change.Changed, Added, Reordered, *BackupFile);
         return true;
     }
 }
@@ -816,6 +1170,58 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("button style can be applied"), IsAllowedChange(TEXT("Button"), TEXT("Visual.WidgetStyle")));
     TestFalse(TEXT("layout slot change rejected"), IsAllowedChange(TEXT("Text"), TEXT("HAlign")));
     TestFalse(TEXT("arbitrary default override rejected"), IsAllowedChange(TEXT("Horizontal"), TEXT("Default.SomeProperty")));
+
+    // Structural additions and reorders must not replace existing widget objects.
+    const FString OldXml = TEXT("<Vertical Name=\"Root\"><Text Name=\"A\" Text=\"A\"/>"
+        "<Text Name=\"B\" Text=\"B\"/></Vertical>");
+    const FString NewXml = TEXT("<Vertical Name=\"Root\"><Text Name=\"B\" Text=\"B\"/>"
+        "<Text Name=\"NewText\" Text=\"New\"/><Text Name=\"A\" Text=\"A\"/></Vertical>");
+    FXmlNodeDesc OldStructure, NewStructure;
+    TestTrue(TEXT("parse old structural XML"),
+        UXmlDslParser::ParseXmlString(OldXml, OldStructure, Error));
+    TestTrue(TEXT("parse staged structural XML"),
+        UXmlDslParser::ParseXmlString(NewXml, NewStructure, Error));
+
+    UWidgetTree* OldTree = NewObject<UWidgetTree>();
+    UVerticalBox* OldRoot = OldTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("Root"));
+    OldTree->RootWidget = OldRoot;
+    UTextBlock* OldA = OldTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("A"));
+    UTextBlock* OldB = OldTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("B"));
+    OldRoot->AddChild(OldA);
+    OldRoot->AddChild(OldB);
+
+    UWidgetTree* NewTree = NewObject<UWidgetTree>();
+    UVerticalBox* NewRoot = NewTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("Root"));
+    NewTree->RootWidget = NewRoot;
+    UTextBlock* NewB = NewTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("B"));
+    UTextBlock* NewText = NewTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("NewText"));
+    UTextBlock* NewA = NewTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("A"));
+    NewRoot->AddChild(NewB);
+    NewRoot->AddChild(NewText);
+    NewRoot->AddChild(NewA);
+
+    int32 AddedCount = 0, ReorderedPanels = 0;
+    TestTrue(TEXT("valid leaf addition and reorder"),
+        ValidateStructuralPlan(OldStructure, NewStructure, OldTree, NewTree,
+            AddedCount, ReorderedPanels, Error));
+    TestEqual(TEXT("one added widget"), AddedCount, 1);
+    TestEqual(TEXT("one modified panel"), ReorderedPanels, 1);
+    TestTrue(TEXT("apply structural patch to test tree"),
+        ApplyStructuralPlan(OldStructure, NewStructure, OldTree, NewTree, Error));
+    TestEqual(TEXT("three children after apply"), OldRoot->GetChildrenCount(), 3);
+    TestTrue(TEXT("existing B preserved"), OldRoot->GetChildAt(0) == OldB);
+    TestTrue(TEXT("new child inserted by name"), OldRoot->GetChildAt(1)
+        && OldRoot->GetChildAt(1)->GetFName() == FName(TEXT("NewText")));
+    TestTrue(TEXT("existing A preserved"), OldRoot->GetChildAt(2) == OldA);
+
+    FXmlNodeDesc DeletedStructure;
+    TestTrue(TEXT("parse deletion candidate"),
+        UXmlDslParser::ParseXmlString(
+            TEXT("<Vertical Name=\"Root\"><Text Name=\"A\" Text=\"A\"/></Vertical>"),
+            DeletedStructure, Error));
+    TestFalse(TEXT("deletion is rejected"),
+        ValidateStructuralPlan(OldStructure, DeletedStructure, OldTree, NewTree,
+            AddedCount, ReorderedPanels, Error));
     return true;
 }
 #endif

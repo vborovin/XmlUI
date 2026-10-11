@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Limited structural `XmlUI.RebakeApply` support: append/insert leaf Text/Image/Spacer nodes and reorder existing children in VerticalBox/HorizontalBox/Overlay while preserving previous widget and slot object identities. Fail closed on deletes, reparenting, class changes, mixed property/structure edits, and unsupported panels; verify compiled tree and keep file backup.
+- Structural patch regression test for insert, reorder, identity preservation and deletion rejection.
+- Name-based structural diffs now distinguish reorder from property changes.
 - Experimental `XmlUI.RebakeApply` command: repeat preview/conflict checks, reject structural and unsupported changes, copy allowlisted staged properties into existing WBP widgets without replacing them, compile/verify/save with a persistent .uasset backup and best-effort rollback.
 - Editor-only `XmlUI.RebakePreview` dry-run: stage candidate through bake/compile/save/reload, report normalized widget/property diff, compare saved XmlUI baseline to detect manual changes, never modify source WBP.
 - Automated diff regression test (`XmlUI.RebakePreview.Diff`).
