@@ -176,6 +176,26 @@ namespace
                 if (!Assets || !Assets->DeleteAsset(AssetPath))
                 {
                     UE_LOG(LogTemp, Error, TEXT("XmlUI Re-bake Preview: cleanup failed for %s"), *AssetPath);
+                    continue;
+                }
+                // DeleteAsset can return after the editor marks the package as
+                // deleted while the recently saved file still exists. Never
+                // touch arbitrary assets: these are GUID-named, tool-owned paths.
+                const bool bToolOwned = AssetPath.StartsWith(
+                    TEXT("/Game/__XmlUIRebakePreview/WBP_XmlUIRebake_"))
+                    || AssetPath.StartsWith(
+                        TEXT("/Game/__XmlUIRebakePreview/WBP_XmlUIApplyStage_"));
+                if (bToolOwned)
+                {
+                    const FString PhysicalFile = FPackageName::LongPackageNameToFilename(
+                        AssetPath, TEXT(".uasset"));
+                    if (IFileManager::Get().FileExists(*PhysicalFile)
+                        && !IFileManager::Get().Delete(*PhysicalFile))
+                    {
+                        UE_LOG(LogTemp, Error,
+                            TEXT("XmlUI Re-bake Preview: deleted asset still exists on disk: %s"),
+                            *PhysicalFile);
+                    }
                 }
             }
         }
@@ -306,9 +326,10 @@ namespace
         {
             UE_LOG(LogTemp, Warning,
                 TEXT("XmlUI Re-bake Preview: UNMANAGED — WBP has no valid XmlUI source baseline; cannot verify manual changes"));
-            UE_LOG(LogTemp, Display, TEXT("XmlUI Re-bake Preview: FINISHED (changes=%d, baseline=unknown, source unchanged)"),
+            UE_LOG(LogTemp, Display,
+                TEXT("XmlUI Re-bake Preview: UNMANAGED — %d requested changes; run XmlUI.AdoptBaseline on the saved source WBP after round-trip validation"),
                 DesiredDiff.Changed);
-            return true;
+            return false;
         }
 
         const FString BaselineFile = FPaths::Combine(SavedDir, TEXT("XmlUIRebake_") + Token + TEXT("_baseline.xml"));

@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Explicit `XmlUI.AdoptBaseline` for unmanaged or duplicated WBP copies: require confirmed user action, successful disk round-trip, missing metadata and a persistent backup before writing source metadata.
+- Reject unmanaged previews as not ready for Apply; remove lingering tool-owned temporary uasset files after editor asset deletion to reduce AssetRegistry re-discovery warnings.
 - Limited structural `XmlUI.RebakeApply` support: append/insert leaf Text/Image/Spacer nodes and reorder existing children in VerticalBox/HorizontalBox/Overlay while preserving previous widget and slot object identities. Fail closed on deletes, reparenting, class changes, mixed property/structure edits, and unsupported panels; verify compiled tree and keep file backup.
 - Structural patch regression test for insert, reorder, identity preservation and deletion rejection.
 - Name-based structural diffs now distinguish reorder from property changes.

@@ -137,6 +137,17 @@ The command compiles, saves and reloads a **temporary candidate WBP**. It compar
 This is **preview-only**: the source WBP and its Blueprint graphs are not changed. It creates and deletes temporary assets, which can clear editor Undo history. `UNMANAGED` means conflict detection cannot be trusted for that asset. No existing WBP is overwritten; automatic in-place Apply is not yet available.
 
 
+
+**Adopt a copied or unmanaged WBP**
+
+Duplicating a WBP in the editor may produce a copy without `XmlUI.SourceDsl`. In that case, `RebakePreview` reports `UNMANAGED` and `RebakeApply` refuses changes. Save the copied WBP and explicitly register its **current** state as a new baseline:
+
+```text
+XmlUI.AdoptBaseline Wbp=/Game/UI/WBP_ListEntry_ApplyTest Confirm=YES
+```
+
+This runs `ValidateRoundTrip` first, refuses to overwrite any existing baseline metadata, saves a separate `.uasset` backup, then stores the current exported XML and hash. This is **opt-in**: it cannot detect edits made before adoption and it verifies the exported DSL surface, not Blueprint graphs or animations. After success, rerun `RebakePreview` with the proposed XML. Preview now reports `UNMANAGED` as a failure rather than `READY`.
+
 **8. Apply property and limited structural changes to an existing WBP (experimental)**
 
 After a `READY` preview, close PIE, save the original WBP and run:

@@ -137,6 +137,17 @@ XmlUI.RebakePreview Wbp=/Game/UI/WBP_ListEntry File=/absolute/path/ListEntry.xml
 本功能**仅预览**，不会修改源 WBP 或其 Blueprint 图表。临时资产会被删除，此过程可能清空编辑器 Undo 历史。`UNMANAGED` 表示无法可靠地检查冲突。当前尚不支持直接覆盖现有 WBP。
 
 
+
+**为复制或未托管的 WBP 创建基线**
+
+在编辑器中复制 WBP 可能丢失 `XmlUI.SourceDsl` 元数据。这时 `RebakePreview` 会报告 `UNMANAGED`，`RebakeApply` 拒绝更新。先保存复制的 WBP，然后明确确认将**当前**版本登记为新基线：
+
+```text
+XmlUI.AdoptBaseline Wbp=/Game/UI/WBP_ListEntry_ApplyTest Confirm=YES
+```
+
+命令先运行 `ValidateRoundTrip`，拒绝覆盖已有的基线元数据，单独备份 `.uasset`，再存储当前导出的 XML 和哈希。这是**主动确认**操作：无法检查登记前的人工修改，验证仅覆盖可导出的 DSL 内容，不包括 Blueprint 图表或动画。成功后重新运行 `RebakePreview`。现在 `UNMANAGED` 属于失败状态，不会被误认为 `READY`。
+
 **8. 将属性和有限结构改动应用到现有 WBP（实验性）**
 
 确认预览结果为 `READY`，退出 PIE 并保存 WBP 后运行：

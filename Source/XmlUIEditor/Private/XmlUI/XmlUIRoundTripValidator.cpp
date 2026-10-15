@@ -6,6 +6,11 @@
 #include "Components/TextBlock.h"
 #include "Fonts/SlateFontInfo.h"
 #include "Editor.h"
+#include "FileHelpers.h"
+#include "HAL/PlatformFileManager.h"
+#include "Misc/Guid.h"
+#include "Misc/SecureHash.h"
+#include "UObject/MetaData.h"
 #include "HAL/FileManager.h"
 #include "HAL/IConsoleManager.h"
 #include "Misc/AutomationTest.h"
@@ -134,6 +139,21 @@ namespace
                     UE_LOG(LogTemp, Error,
                         TEXT("XmlUI RoundTrip: could not remove temporary asset '%s'; remove it manually"),
                         *TempAssetPath);
+                }
+                else if (TempAssetPath.StartsWith(TEXT("/Game/__XmlUIValidation/WBP_XmlUIValidation_")))
+                {
+                    // Force Delete can mark an asset deleted yet leave its
+                    // freshly saved file on disk, prompting AssetRegistry to
+                    // rediscover it. Only touch this tool-owned GUID path.
+                    const FString PhysicalFile = FPackageName::LongPackageNameToFilename(
+                        TempAssetPath, TEXT(".uasset"));
+                    if (IFileManager::Get().FileExists(*PhysicalFile)
+                        && !IFileManager::Get().Delete(*PhysicalFile))
+                    {
+                        UE_LOG(LogTemp, Error,
+                            TEXT("XmlUI RoundTrip: temporary uasset remains on disk: %s"),
+                            *PhysicalFile);
+                    }
                 }
             }
         }
@@ -285,6 +305,133 @@ namespace
             Result.ComparedWidgets, Result.ComparedAttributes, Result.Differences.Num());
         return Result.Differences.IsEmpty();
     }
+
+    bool AdoptBaseline(const FString& WbpPath, const FString& Confirmation)
+    {
+        if (Confirmation != TEXT("YES"))
+        {
+            UE_LOG(LogTemp, Error,
+                TEXT("XmlUI AdoptBaseline: explicit Confirm=YES is required"));
+            return false;
+        }
+        if (GEditor && GEditor->PlayWorld)
+        {
+            UE_LOG(LogTemp, Error, TEXT("XmlUI AdoptBaseline: stop PIE first"));
+            return false;
+        }
+        if (!WbpPath.StartsWith(TEXT("/Game/")))
+        {
+            UE_LOG(LogTemp, Error, TEXT("XmlUI AdoptBaseline: expected Wbp=/Game/..."));
+            return false;
+        }
+
+        UWidgetBlueprint* BP = LoadObject<UWidgetBlueprint>(nullptr, *WbpPath);
+        if (!BP || !BP->WidgetTree || !BP->WidgetTree->RootWidget
+            || BP->GetOutermost()->IsDirty())
+        {
+            UE_LOG(LogTemp, Error,
+                TEXT("XmlUI AdoptBaseline: source is missing, empty or unsaved: %s"),
+                *WbpPath);
+            return false;
+        }
+        FMetaData& Meta = BP->GetOutermost()->GetMetaData();
+        const FString PreviousSource = Meta.GetValue(BP, TEXT("XmlUI.SourceDsl"));
+        const FString PreviousHash = Meta.GetValue(BP, TEXT("XmlUI.SourceHash"));
+        if (!PreviousSource.IsEmpty() || !PreviousHash.IsEmpty())
+        {
+            UE_LOG(LogTemp, Error,
+                TEXT("XmlUI AdoptBaseline: existing metadata found; refusing to overwrite an existing or damaged baseline"));
+            return false;
+        }
+
+        // An unmanaged WBP must prove it can round-trip losslessly through the
+        // supported XML surface before it can opt in to managed updates.
+        if (!ValidateRoundTrip(WbpPath))
+        {
+            UE_LOG(LogTemp, Error,
+                TEXT("XmlUI AdoptBaseline: round-trip validation failed; source unchanged"));
+            return false;
+        }
+
+        BP = LoadObject<UWidgetBlueprint>(nullptr, *WbpPath);
+        if (!BP || BP->GetOutermost()->IsDirty())
+        {
+            UE_LOG(LogTemp, Error,
+                TEXT("XmlUI AdoptBaseline: WBP changed during validation; retry with a saved asset"));
+            return false;
+        }
+        FMetaData& CurrentMeta = BP->GetOutermost()->GetMetaData();
+        if (!FString(CurrentMeta.GetValue(BP, TEXT("XmlUI.SourceDsl"))).IsEmpty()
+            || !FString(CurrentMeta.GetValue(BP, TEXT("XmlUI.SourceHash"))).IsEmpty())
+        {
+            UE_LOG(LogTemp, Error, TEXT("XmlUI AdoptBaseline: metadata changed during validation"));
+            return false;
+        }
+
+        const FString Token = FGuid::NewGuid().ToString(EGuidFormats::Digits);
+        const FString TempXml = FPaths::Combine(
+            FPaths::ProjectSavedDir(), TEXT("XmlUIAdopt_") + Token + TEXT(".xml"));
+        const bool bExported = FXmlUIDslExporter::ExportWbpToDslFile(WbpPath, TempXml);
+        FString Source;
+        const bool bRead = bExported && FFileHelper::LoadFileToString(Source, *TempXml);
+        IFileManager::Get().Delete(*TempXml);
+        if (!bRead || Source.IsEmpty())
+        {
+            UE_LOG(LogTemp, Error, TEXT("XmlUI AdoptBaseline: could not export the saved WBP"));
+            return false;
+        }
+
+        const FString OriginalFile = FPackageName::LongPackageNameToFilename(
+            BP->GetOutermost()->GetName(), TEXT(".uasset"));
+        const FString BackupDir = FPaths::Combine(
+            FPaths::ProjectSavedDir(), TEXT("XmlUIBackups"));
+        IFileManager::Get().MakeDirectory(*BackupDir, true);
+        const FString BackupFile = FPaths::Combine(
+            BackupDir, BP->GetName() + TEXT("_Adopt_") + Token + TEXT(".uasset"));
+        IPlatformFile& Platform = FPlatformFileManager::Get().GetPlatformFile();
+        if (!Platform.FileExists(*OriginalFile)
+            || !Platform.CopyFile(*BackupFile, *OriginalFile))
+        {
+            UE_LOG(LogTemp, Error,
+                TEXT("XmlUI AdoptBaseline: backup failed; source untouched"));
+            return false;
+        }
+
+        BP->Modify();
+        CurrentMeta.SetValue(BP, TEXT("XmlUI.SourceDsl"), *Source);
+        CurrentMeta.SetValue(BP, TEXT("XmlUI.SourceHash"), *FMD5::HashAnsiString(*Source));
+        CurrentMeta.SetValue(BP, TEXT("XmlUI.BakeVersion"), TEXT("1"));
+        BP->MarkPackageDirty();
+        const TArray<UPackage*> Packages{ BP->GetOutermost() };
+        if (!UEditorLoadingAndSavingUtils::SavePackages(Packages, false))
+        {
+            CurrentMeta.RemoveValue(BP, TEXT("XmlUI.SourceDsl"));
+            CurrentMeta.RemoveValue(BP, TEXT("XmlUI.SourceHash"));
+            CurrentMeta.RemoveValue(BP, TEXT("XmlUI.BakeVersion"));
+            if (!Platform.CopyFile(*OriginalFile, *BackupFile))
+            {
+                UE_LOG(LogTemp, Error,
+                    TEXT("XmlUI AdoptBaseline: restoring backup failed; restore manually from %s"),
+                    *BackupFile);
+            }
+            FText ReloadError;
+            if (!UPackageTools::ReloadPackages({ BP->GetOutermost() }, ReloadError, false))
+            {
+                UE_LOG(LogTemp, Error,
+                    TEXT("XmlUI AdoptBaseline: reload after rollback failed: %s"),
+                    *ReloadError.ToString());
+            }
+            UE_LOG(LogTemp, Error,
+                TEXT("XmlUI AdoptBaseline: save failed; backup retained: %s"), *BackupFile);
+            return false;
+        }
+
+        UE_LOG(LogTemp, Display,
+            TEXT("XmlUI AdoptBaseline: SUCCESS — round-trip verified; backup=%s; WBP=%s"),
+            *BackupFile, *WbpPath);
+        return true;
+    }
+
 }
 
 static FAutoConsoleCommand GXmlUIValidateRoundTripCommand(
@@ -300,6 +447,19 @@ static FAutoConsoleCommand GXmlUIValidateRoundTripCommand(
             return;
         }
         ValidateRoundTrip(WbpPath);
+    }));
+
+
+static FAutoConsoleCommand GXmlUIAdoptBaselineCommand(
+    TEXT("XmlUI.AdoptBaseline"),
+    TEXT("Register a verified unmanaged WBP for safe Re-bake. Usage: XmlUI.AdoptBaseline Wbp=/Game/UI/WBP_Name Confirm=YES"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        const FString CommandLine = FString::Join(Args, TEXT(" "));
+        FString WbpPath, Confirmation;
+        FParse::Value(*CommandLine, TEXT("Wbp="), WbpPath);
+        FParse::Value(*CommandLine, TEXT("Confirm="), Confirmation);
+        AdoptBaseline(WbpPath, Confirmation);
     }));
 
 #if WITH_DEV_AUTOMATION_TESTS
