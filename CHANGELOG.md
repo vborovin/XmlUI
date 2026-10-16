@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Typed value validation for ranges, colors, vectors/margins, alignments, booleans, ScaleBox enums, and brush resource-path syntax.
 
 ### Fixed
+- Fix UE5.8 compile error in Structural Re-bake rollback verification: `FMetaData::GetValue` requires mutable metadata.
 - Failed Re-bake Apply restores the complete backed-up .uasset, verifies the bytes, reloads the WBP and checks its DSL, source metadata and widget/animation GUID map; incomplete recovery is now reported as an error.
 - Dev-only `TestFailAt=AfterMutation|AfterCompile|AfterSave` fault injection for testing rollback before compilation, after compilation and after saving.
 - Added byte-for-byte backup-restore regression assertions.

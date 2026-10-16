@@ -1015,7 +1015,7 @@ namespace
                     const FGuid* Value = ActualGuids.Find(Pair.Key);
                     bGuidsMatch &= Value && *Value == Pair.Value;
                 }
-                const FMetaData& RecoveredMeta =
+                FMetaData& RecoveredMeta =
                     Recovered->GetOutermost()->GetMetaData();
                 const bool bMetadataMatch =
                     FString(RecoveredMeta.GetValue(Recovered, TEXT("XmlUI.SourceDsl"))) == ExpectedSource
