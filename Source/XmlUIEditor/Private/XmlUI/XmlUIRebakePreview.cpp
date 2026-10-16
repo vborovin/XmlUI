@@ -892,6 +892,75 @@ namespace
         return true;
     }
 
+    // Every source widget needs a stable Blueprint variable GUID (even when
+    // bIsVariable is false). Adding a UWidget directly to a UWidgetTree does
+    // not update WidgetVariableNameToGuidMap. UMG's compiler checks this
+    // invariant in ValidateAndFixUpVariableGuids() before generating fields.
+    // Also fixes widgets inserted by earlier XmlUI versions without GUIDs;
+    // existing widget and animation GUIDs are never regenerated or removed.
+    bool EnsureWidgetVariableGuids(const UWidgetTree* Tree,
+        TMap<FName, FGuid>& GuidMap, int32& OutAssigned, FString& Error)
+    {
+        OutAssigned = 0;
+        if (!Tree || !Tree->RootWidget)
+        {
+            Error = TEXT("cannot register widget GUIDs: WidgetTree is empty");
+            return false;
+        }
+
+        TArray<UWidget*> Widgets;
+        Tree->GetAllWidgets(Widgets);
+
+        // Preflight all names before changing the map; existing GUIDs are
+        // immutable because Blueprint graph references may depend on them.
+        TSet<FName> Names;
+        TSet<FGuid> UsedGuids;
+        for (const TPair<FName, FGuid>& Pair : GuidMap)
+        {
+            if (!Pair.Value.IsValid() || UsedGuids.Contains(Pair.Value))
+            {
+                Error = FString::Printf(
+                    TEXT("existing widget/animation GUID map has an invalid or duplicate GUID at '%s'"),
+                    *Pair.Key.ToString());
+                return false;
+            }
+            UsedGuids.Add(Pair.Value);
+        }
+        for (const UWidget* Widget : Widgets)
+        {
+            if (!Widget || Widget->GetFName().IsNone()
+                || Names.Contains(Widget->GetFName()))
+            {
+                Error = TEXT("WidgetTree contains an unnamed or duplicate widget");
+                return false;
+            }
+            Names.Add(Widget->GetFName());
+        }
+
+        for (const UWidget* Widget : Widgets)
+        {
+            const FName Name = Widget->GetFName();
+            if (GuidMap.Contains(Name))
+            {
+                continue;
+            }
+            FGuid NewGuid;
+            do
+            {
+                NewGuid = FGuid::NewGuid();
+            }
+            while (!NewGuid.IsValid() || UsedGuids.Contains(NewGuid));
+            GuidMap.Add(Name, NewGuid);
+            UsedGuids.Add(NewGuid);
+            ++OutAssigned;
+            UE_LOG(LogTemp, Display,
+                TEXT("XmlUI Re-bake Apply: assigned GUID %s to widget '%s'"),
+                *NewGuid.ToString(), *Name.ToString());
+        }
+
+        return true;
+    }
+
     bool Apply(const FString& WbpPath, const FString& XmlPath, const FString& Confirmation)
     {
         if (Confirmation != TEXT("YES"))
@@ -1009,10 +1078,15 @@ namespace
         {
             OriginalIdentities.Add(Widget->GetFName(), Widget);
         }
+        // The GUID map is part of the WBP, not the WidgetTree. Keep its
+        // complete state (including animation entries) for any rollback.
+        const TMap<FName, FGuid> OriginalVariableGuids =
+            Original->WidgetVariableNameToGuidMap;
 
         const auto Rollback = [&](const FString& Reason, bool bRestoreDisk) -> bool
         {
             Transaction.Cancel();
+            Original->WidgetVariableNameToGuidMap = OriginalVariableGuids;
             FString RestoreError;
             if (!Change.bStructureChanged)
             {
@@ -1078,6 +1152,14 @@ namespace
             }
             FBlueprintEditorUtils::MarkBlueprintAsModified(Original);
         }
+        // Register missing GUIDs *before* compilation. This also repairs a
+        // widget left without a GUID by a previous structural Apply.
+        int32 AssignedGuids = 0;
+        if (!EnsureWidgetVariableGuids(Original->WidgetTree,
+            Original->WidgetVariableNameToGuidMap, AssignedGuids, Error))
+        {
+            return Rollback(Error, false);
+        }
         FKismetEditorUtilities::CompileBlueprint(Original);
         const UWidgetBlueprintGeneratedClass* RebuiltClass =
             Cast<UWidgetBlueprintGeneratedClass>(Original->GeneratedClass);
@@ -1096,6 +1178,18 @@ namespace
                 && !VerifyCompiledChanges(Before, Staged, Original, StagedBP, Error)))
         {
             return Rollback(Error.IsEmpty() ? TEXT("Blueprint compilation failed") : Error, false);
+        }
+        // Compilation must not replace or renumber any existing Blueprint
+        // widget/animation GUIDs, because graph references rely on them.
+        for (const TPair<FName, FGuid>& Pair : OriginalVariableGuids)
+        {
+            const FGuid* Saved = Original->WidgetVariableNameToGuidMap.Find(Pair.Key);
+            if (!Saved || *Saved != Pair.Value)
+            {
+                return Rollback(FString::Printf(
+                    TEXT("original variable GUID changed for '%s'"),
+                    *Pair.Key.ToString()), false);
+            }
         }
         // Structural compilation must not invalidate any existing widget object.
         if (Change.bStructureChanged)
@@ -1135,8 +1229,8 @@ namespace
         }
 
         UE_LOG(LogTemp, Display,
-            TEXT("XmlUI Re-bake Apply: SUCCESS — %d changes (added=%d, modifiedPanels=%d); original WBP kept, backup=%s"),
-            Change.Changed, Added, Reordered, *BackupFile);
+            TEXT("XmlUI Re-bake Apply: SUCCESS — %d changes (added=%d, modifiedPanels=%d, assignedGuids=%d); original WBP kept, backup=%s"),
+            Change.Changed, Added, Reordered, AssignedGuids, *BackupFile);
         return true;
     }
 }
@@ -1242,6 +1336,44 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("new child inserted by name"), OldRoot->GetChildAt(1)
         && OldRoot->GetChildAt(1)->GetFName() == FName(TEXT("NewText")));
     TestTrue(TEXT("existing A preserved"), OldRoot->GetChildAt(2) == OldA);
+
+    // Regression for UE5.8 WidgetBlueprintCompiler.cpp:781: an inserted
+    // WidgetTree child must have its own GUID before Blueprint compilation.
+    TMap<FName, FGuid> VariableGuids;
+    const FGuid RootGuid = FGuid::NewGuid();
+    const FGuid AGuid = FGuid::NewGuid();
+    const FGuid BGuid = FGuid::NewGuid();
+    VariableGuids.Add(TEXT("Root"), RootGuid);
+    VariableGuids.Add(TEXT("A"), AGuid);
+    VariableGuids.Add(TEXT("B"), BGuid);
+    int32 Assigned = 0;
+    TestTrue(TEXT("register inserted widget GUID"),
+        EnsureWidgetVariableGuids(OldTree, VariableGuids, Assigned, Error));
+    TestEqual(TEXT("one new GUID"), Assigned, 1);
+    const FGuid* NewGuid = VariableGuids.Find(FName(TEXT("NewText")));
+    TestTrue(TEXT("inserted widget GUID exists and is valid"),
+        NewGuid && NewGuid->IsValid());
+    TestTrue(TEXT("root GUID unchanged"), VariableGuids.FindChecked(FName(TEXT("Root"))) == RootGuid);
+    TestTrue(TEXT("A GUID unchanged"), VariableGuids.FindChecked(FName(TEXT("A"))) == AGuid);
+    TestTrue(TEXT("B GUID unchanged"), VariableGuids.FindChecked(FName(TEXT("B"))) == BGuid);
+    const FGuid FirstNewGuid = NewGuid ? *NewGuid : FGuid();
+    TestTrue(TEXT("re-registering same widget is safe"),
+        EnsureWidgetVariableGuids(OldTree, VariableGuids, Assigned, Error));
+    TestEqual(TEXT("no GUID regenerated"), Assigned, 0);
+    TestTrue(TEXT("new widget GUID stays stable"),
+        VariableGuids.FindChecked(FName(TEXT("NewText"))) == FirstNewGuid);
+
+    // Earlier Structural Re-bake versions could leave an already-existing
+    // widget without a GUID; the next Apply must repair it without replacing
+    // any of the other GUIDs.
+    VariableGuids.Remove(FName(TEXT("NewText")));
+    TestTrue(TEXT("previously missing widget GUID can be repaired"),
+        EnsureWidgetVariableGuids(OldTree, VariableGuids, Assigned, Error));
+    TestEqual(TEXT("only one repaired GUID"), Assigned, 1);
+    TestTrue(TEXT("repaired GUID is valid"),
+        VariableGuids.FindChecked(FName(TEXT("NewText"))).IsValid());
+    TestTrue(TEXT("original A GUID remains unchanged after repair"),
+        VariableGuids.FindChecked(FName(TEXT("A"))) == AGuid);
 
     FXmlNodeDesc DeletedStructure;
     TestTrue(TEXT("parse deletion candidate"),

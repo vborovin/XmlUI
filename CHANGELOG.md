@@ -29,7 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Typed value validation for ranges, colors, vectors/margins, alignments, booleans, ScaleBox enums, and brush resource-path syntax.
 
 ### Fixed
-- Structural Re-bake Apply now marks a modified Widget Blueprint and performs one explicit full compile instead of requesting skeleton recompilation and editor notifications through `MarkBlueprintAsStructurallyModified` first. This addresses a handled ensure reported at that call site in UE5.8; full compiler/template verification remains active.
+- Fixed the actual UE5.8 handled ensure in `FWidgetBlueprintCompilerContext::ValidateAndFixUpVariableGuids`: Structural Re-bake now assigns stable GUIDs to newly inserted UWidgets before compile, preserving existing widget/animation GUIDs and restoring the map on rollback. This also repairs missing GUIDs left by previous XmlUI structural Apply versions.
+- Structural Apply marks the Blueprint as modified and performs one explicit full compile; the earlier change to `MarkBlueprintAsStructurallyModified` alone did not address the missing-GUID ensure.
 
 ## [1.0.0] - 2026-09-09
 
