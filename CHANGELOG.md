@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Typed value validation for ranges, colors, vectors/margins, alignments, booleans, ScaleBox enums, and brush resource-path syntax.
 
 ### Fixed
+- UE5.8 UMG compiler ensure on guarded leaf deletion: `UWidgetTree::RemoveWidget()` detached the widget from the hierarchy but kept its UObject under the source `WidgetTree`. Move the removed object into the transient package with a unique name before pruning `WidgetVariableNameToGuidMap`; reject if source ownership remains. Regression verifies that the detached object no longer belongs to the source tree.
 - Fix incomplete rollback at `TestFailAt=AfterMutation`: after verifying the restored .uasset bytes, clear the source package's dirty flag before `ReloadPackages`, restoring it if reload fails. No package dirty state is cleared when disk recovery is unverified.
 - Require a genuine structural diff for dev-only `TestFailAt` scenarios; no-op XML must not be used as evidence that Structural Re-bake rollback works.
 - Fix UE5.8 compile error in Structural Re-bake rollback verification: `FMetaData::GetValue` requires mutable metadata.

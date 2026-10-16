@@ -1111,6 +1111,33 @@ namespace
                     *Pair.Key);
                 return false;
             }
+
+            // WidgetTree::RemoveWidget only detaches the hierarchy entry;
+            // it does NOT necessarily change the removed widget's UObject
+            // Outer. UBaseWidgetBlueprint::ForEachSourceWidgetImpl in UE5.8
+            // enumerates UWidgets owned by the source WidgetTree, including
+            // these detached objects. Removing the variable GUID while the
+            // detached UWidget still has Outer=ExistingTree makes the compiler
+            // report "widget was added but did not get a GUID".
+            //
+            // Move the detached UObject out of the source package before
+            // its GUID is pruned. The persistent backup and verified package
+            // reload remain authoritative on all failure paths.
+            UPackage* TransientPackage = GetTransientPackage();
+            const FString TransientName = MakeUniqueObjectName(
+                TransientPackage, Widget->GetClass(),
+                FName(TEXT("XmlUIDeletedWidget"))).ToString();
+            if (!Widget->Rename(*TransientName, TransientPackage,
+                REN_DontCreateRedirectors | REN_NonTransactional | REN_DoNotDirty)
+                || Widget->IsIn(ExistingTree))
+            {
+                Error = FString::Printf(
+                    TEXT("could not evacuate deleted widget '%s' from source WidgetTree ownership"),
+                    *Pair.Key);
+                return false;
+            }
+            Widget->ClearFlags(RF_Public | RF_Standalone);
+            Widget->SetFlags(RF_Transient);
             ExistingByName.Remove(FName(*Pair.Key));
         }
 
@@ -1655,10 +1682,12 @@ namespace
             }
             for (const FName& DeletedName : DeletedNames)
             {
-                if (Original->WidgetTree->FindWidget(DeletedName))
+                const UWidget* RemovedWidget = OriginalIdentities.FindRef(DeletedName);
+                if (Original->WidgetTree->FindWidget(DeletedName)
+                    || !RemovedWidget || RemovedWidget->IsIn(Original->WidgetTree))
                 {
                     return Rollback(FString::Printf(
-                        TEXT("deleted widget '%s' is still in the WidgetTree"),
+                        TEXT("deleted widget '%s' remains owned by the source WidgetTree"),
                         *DeletedName.ToString()));
                 }
                 Original->WidgetVariableNameToGuidMap.Remove(DeletedName);
@@ -2147,6 +2176,14 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("surviving widget preserved by identity"), DeleteRoot->GetChildAt(0) == KeepA);
     TestTrue(TEXT("deleted widget no longer accessible by name"),
         DeleteTree->FindWidget(FName(TEXT("B"))) == nullptr);
+    // Regression for UE5.8 WidgetBlueprintCompiler.cpp:781:
+    // ForEachSourceWidget enumerates owned UWidgets, not only the hierarchy.
+    TestTrue(TEXT("deleted widget evacuated from source WidgetTree Outer"),
+        !RemoveB->IsIn(DeleteTree));
+    TestTrue(TEXT("deleted widget moved to transient package"),
+        RemoveB->GetOuter() == GetTransientPackage());
+    TestTrue(TEXT("deleted widget is transient"),
+        RemoveB->HasAnyFlags(RF_Transient));
     TestTrue(TEXT("resulting tree matches staged hierarchy"),
         CompareGeneratedStructure(DeleteTree->RootWidget, DeleteStageTree->RootWidget, Error));
 
