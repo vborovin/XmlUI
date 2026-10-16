@@ -158,7 +158,20 @@ XmlUI.RebakeApply Wbp=/Game/UI/WBP_ListEntry File=/absolute/path/ListEntry.xml C
 
 命令会重新执行预览和冲突检测，编译并重新加载临时候选 WBP。**属性模式**允许更改 `Text`、文本 `Color`、`FontSize` / `FontPath` / `Typeface`、`Visibility`、`RenderOpacity` 和支持的原生 `Visual.*`。**有限结构模式**支持在现有 `VerticalBox`、`HorizontalBox` 和 `Overlay` 中新增无子节点的 `Text`、`Image`、`Spacer`，以及调整这些容器中子节点的顺序；原有控件对象和插槽保持不变，新控件的插槽来自经过编译的候选 WBP。一次 Apply 不允许混合属性与结构更改。删除、跨容器移动、重命名、修改已有控件类和属性、修改已有插槽属性、`Default.*` 改动、不支持的容器及无可靠基线或有冲突的资产均被拒绝。
 
-修改前 XmlUI 会把原始 `.uasset` 单独备份到 `Saved/XmlUIBackups/`。应用会保留原有资产路径、控件对象和 Blueprint 图表，重新编译后与临时候选的导出结果比对。失败时尝试恢复内存状态并重新加载资产；若恢复失败，日志保留备份文件路径。保存成功后更新 `XmlUI.SourceDsl` / `XmlUI.SourceHash`。最后清理临时资产，可能清空编辑器的 Undo 历史。此功能**仍属实验性**，请先在复制的测试 WBP 上验证；不支持 Blueprint 图表合并、删除控件和跨容器移动。结构操作会检查编译后的控件树。结构模式已在 SMA 的 UE5.8 中试运行，初次测试发现新加入的控件缺少变量 GUID，从而触发了编译器 handled ensure。现在 Apply 会在编译前为新控件登记 GUID，并修复旧版本留下的缺失 GUID，同时保持已有控件及动画 GUID 不变。此修正尚需在 UE5.8 上重新编译验证；仍应先在可丢弃的 WBP 上测试。
+修改前 XmlUI 会把原始 `.uasset` 单独备份到 `Saved/XmlUIBackups/`。应用会保留原有资产路径、控件对象和 Blueprint 图表，重新编译后与临时候选的导出结果比对。失败时会从备份恢复完整 `.uasset` 文件，验证字节一致性，重新加载 WBP 并比较 XML、源元数据和 GUID 表。如恢复不完整，日志输出 `XmlUI rollback: INCOMPLETE`。进程崩溃或重载失败时仍可能需要手动从备份恢复。保存成功后更新 `XmlUI.SourceDsl` / `XmlUI.SourceHash`。最后清理临时资产，可能清空编辑器的 Undo 历史。此功能**仍属实验性**，请先在复制的测试 WBP 上验证；不支持 Blueprint 图表合并、删除控件和跨容器移动。结构操作会检查编译后的控件树。结构模式已在 SMA 的 UE5.8 中试运行，初次测试发现新加入的控件缺少变量 GUID，从而触发了编译器 handled ensure。现在 Apply 会在编译前为新控件登记 GUID，并修复旧版本留下的缺失 GUID，同时保持已有控件及动画 GUID 不变。此修正尚需在 UE5.8 上重新编译验证；仍应先在可丢弃的 WBP 上测试。
+
+
+**在可丢弃的测试 WBP 上检查回滚（仅开发编辑器）**
+
+准备一个仅新增叶子控件的 XML，确保预览结果为 `READY`。分别执行下列命令，每次会故意报告 `FAILED`，成功恢复则同时输出 `XmlUI rollback: VERIFIED`：
+
+```text
+XmlUI.RebakeApply Wbp=/Game/UI/WBP_RollbackTest File=/absolute/path/structural.xml Confirm=YES TestFailAt=AfterMutation
+XmlUI.RebakeApply Wbp=/Game/UI/WBP_RollbackTest File=/absolute/path/structural.xml Confirm=YES TestFailAt=AfterCompile
+XmlUI.RebakeApply Wbp=/Game/UI/WBP_RollbackTest File=/absolute/path/structural.xml Confirm=YES TestFailAt=AfterSave
+```
+
+最后一条模拟保存后的失败。每次验证新增控件没有留下，包括重启编辑器后。此参数仅在 `WITH_DEV_AUTOMATION_TESTS` 下可用。若输出 `INCOMPLETE`，请勿保存打开的 WBP，保留 `Saved/XmlUIBackups/` 中的备份。
 
 烘焙出的 Widget Blueprint 资产带有 `XmlUI.SourceDsl`、`XmlUI.SourceHash`、`XmlUI.BakeVersion` 包元数据（源 DSL 原文 + MD5），为未来的增量更新提供基线。
 

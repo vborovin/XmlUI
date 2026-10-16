@@ -32,7 +32,6 @@
 #include "UObject/Package.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UnrealType.h"
-#include "UObject/StrongObjectPtr.h"
 #include "WidgetBlueprint.h"
 #include "XmlDslNode.h"
 #include "XmlDslParser.h"
@@ -961,13 +960,131 @@ namespace
         return true;
     }
 
-    bool Apply(const FString& WbpPath, const FString& XmlPath, const FString& Confirmation)
+    // The recovery source is the entire backed-up package, not a snapshot
+    // of exported widget properties. Verify the full .uasset byte-for-byte.
+    bool IdenticalAssetFiles(const FString& A, const FString& B)
+    {
+        TArray<uint8> Left, Right;
+        return FFileHelper::LoadFileToArray(Left, *A)
+            && FFileHelper::LoadFileToArray(Right, *B)
+            && Left == Right;
+    }
+
+    bool RestoreOriginalPackage(const FString& WbpPath, UPackage* Package,
+        const FString& AssetFile, const FString& BackupFile,
+        const FString& RecoveredXmlFile, const FXmlNodeDesc& ExpectedNode,
+        const TMap<FName, FGuid>& ExpectedGuids,
+        const FString& ExpectedSource, const FString& ExpectedHash)
+    {
+        // Copy *even if* the failed operation never reached SavePackages.
+        // Transaction.Cancel does not reverse in-memory structural edits.
+        const bool bCopied = FPlatformFileManager::Get().GetPlatformFile()
+            .CopyFile(*AssetFile, *BackupFile);
+        const bool bBytesMatch = IdenticalAssetFiles(AssetFile, BackupFile);
+        if (!bCopied || !bBytesMatch)
+        {
+            UE_LOG(LogTemp, Error,
+                TEXT("XmlUI rollback: package restore copy/byte validation failed (copied=%s identical=%s)"),
+                bCopied ? TEXT("yes") : TEXT("no"),
+                bBytesMatch ? TEXT("yes") : TEXT("no"));
+        }
+
+        FText ReloadError;
+        const TArray<UPackage*> Packages{ Package };
+        const bool bReloaded = UPackageTools::ReloadPackages(
+            Packages, ReloadError, false);
+        if (!bReloaded)
+        {
+            UE_LOG(LogTemp, Error, TEXT("XmlUI rollback: package reload failed: %s"),
+                *ReloadError.ToString());
+        }
+
+        bool bVerified = false;
+        if (bBytesMatch && bReloaded)
+        {
+            UWidgetBlueprint* Recovered = LoadObject<UWidgetBlueprint>(
+                nullptr, *WbpPath);
+            if (Recovered && Recovered->WidgetTree && Recovered->WidgetTree->RootWidget
+                && !Recovered->GetOutermost()->IsDirty())
+            {
+                const TMap<FName, FGuid>& ActualGuids =
+                    Recovered->WidgetVariableNameToGuidMap;
+                bool bGuidsMatch = ActualGuids.Num() == ExpectedGuids.Num();
+                for (const TPair<FName, FGuid>& Pair : ExpectedGuids)
+                {
+                    const FGuid* Value = ActualGuids.Find(Pair.Key);
+                    bGuidsMatch &= Value && *Value == Pair.Value;
+                }
+                const FMetaData& RecoveredMeta =
+                    Recovered->GetOutermost()->GetMetaData();
+                const bool bMetadataMatch =
+                    FString(RecoveredMeta.GetValue(Recovered, TEXT("XmlUI.SourceDsl"))) == ExpectedSource
+                    && FString(RecoveredMeta.GetValue(Recovered, TEXT("XmlUI.SourceHash"))) == ExpectedHash;
+                FString ParseError;
+                FXmlNodeDesc Node;
+                if (bGuidsMatch && bMetadataMatch
+                    && FXmlUIDslExporter::ExportWbpToDslFile(WbpPath, RecoveredXmlFile)
+                    && ParseFile(RecoveredXmlFile, Node, ParseError))
+                {
+                    FXmlRebakeDiff Differences;
+                    DiffNodes(ExpectedNode, Node, FString(), Differences);
+                    bVerified = Differences.Changed == 0;
+                    if (!bVerified)
+                    {
+                        PrintDiff(TEXT("ROLLBACK-MISMATCH"), Differences);
+                    }
+                }
+                if (!bVerified)
+                {
+                    UE_LOG(LogTemp, Error,
+                        TEXT("XmlUI rollback: content verification failed (GUIDs=%s metadata=%s XML=%s)"),
+                        bGuidsMatch ? TEXT("match") : TEXT("mismatch"),
+                        bMetadataMatch ? TEXT("match") : TEXT("mismatch"),
+                        *ParseError);
+                }
+            }
+        }
+        const bool bSuccess = bBytesMatch && bReloaded && bVerified;
+        if (bSuccess)
+        {
+            UE_LOG(LogTemp, Display,
+                TEXT("XmlUI rollback: VERIFIED — disk bytes, reloaded WBP, XML tree and GUIDs match; backup=%s"),
+                *BackupFile);
+        }
+        else
+        {
+            UE_LOG(LogTemp, Error,
+                TEXT("XmlUI rollback: INCOMPLETE (disk=%s reload=%s content=%s); backup=%s. Do not save the open WBP; restart the editor and restore the backup manually if necessary"),
+                bBytesMatch ? TEXT("verified") : TEXT("FAILED"),
+                bReloaded ? TEXT("ok") : TEXT("FAILED"),
+                bVerified ? TEXT("verified") : TEXT("FAILED"),
+                *BackupFile);
+        }
+        return bSuccess;
+    }
+
+    bool Apply(const FString& WbpPath, const FString& XmlPath, const FString& Confirmation,
+        const FString& TestFailAt)
     {
         if (Confirmation != TEXT("YES"))
         {
             UE_LOG(LogTemp, Error, TEXT("XmlUI Re-bake Apply: explicit Confirm=YES is required"));
             return false;
         }
+#if WITH_DEV_AUTOMATION_TESTS
+        if (!TestFailAt.IsEmpty() && TestFailAt != TEXT("AfterMutation")
+            && TestFailAt != TEXT("AfterCompile") && TestFailAt != TEXT("AfterSave"))
+        {
+            UE_LOG(LogTemp, Error, TEXT("XmlUI Re-bake Apply: invalid TestFailAt"));
+            return false;
+        }
+#else
+        if (!TestFailAt.IsEmpty())
+        {
+            UE_LOG(LogTemp, Error, TEXT("XmlUI Re-bake Apply: TestFailAt requires WITH_DEV_AUTOMATION_TESTS"));
+            return false;
+        }
+#endif
         if (!Preview(WbpPath, XmlPath))
         {
             UE_LOG(LogTemp, Error, TEXT("XmlUI Re-bake Apply: preview failed or reported conflicts; no changes applied"));
@@ -1005,8 +1122,9 @@ namespace
         const FString BeforeFile = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("XmlUIApply_") + Token + TEXT("_before.xml"));
         const FString StagedFile = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("XmlUIApply_") + Token + TEXT("_staged.xml"));
         const FString AppliedFile = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("XmlUIApply_") + Token + TEXT("_applied.xml"));
+        const FString RestoredFile = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("XmlUIApply_") + Token + TEXT("_restored.xml"));
         FScopedPreviewArtifacts Artifacts;
-        Artifacts.XmlFiles = { BeforeFile, StagedFile, AppliedFile };
+        Artifacts.XmlFiles = { BeforeFile, StagedFile, AppliedFile, RestoredFile };
 
         if (!FXmlUIDslExporter::ExportWbpToDslFile(WbpPath, BeforeFile))
         {
@@ -1053,20 +1171,14 @@ namespace
             Original->GetName() + TEXT("_") + Token + TEXT(".uasset"));
         IFileManager::Get().MakeDirectory(*BackupDirectory, true);
         if (!IFileManager::Get().FileExists(*OriginalPackageFile)
-            || !FPlatformFileManager::Get().GetPlatformFile().CopyFile(*BackupFile, *OriginalPackageFile))
+            || !FPlatformFileManager::Get().GetPlatformFile().CopyFile(*BackupFile, *OriginalPackageFile)
+            || !IdenticalAssetFiles(OriginalPackageFile, BackupFile))
         {
             UE_LOG(LogTemp, Error, TEXT("XmlUI Re-bake Apply: backup failed; source asset untouched"));
             return false;
         }
 
-        TStrongObjectPtr<UWidgetTree> Snapshot(
-            DuplicateObject<UWidgetTree>(Original->WidgetTree, GetTransientPackage()));
-        if (!Snapshot)
-        {
-            UE_LOG(LogTemp, Error, TEXT("XmlUI Re-bake Apply: could not snapshot WidgetTree"));
-            return false;
-        }
-
+        UPackage* OriginalPackage = Original->GetOutermost();
         FScopedTransaction Transaction(NSLOCTEXT("XmlUI", "SafeRebakeApply", "XmlUI Safe Re-bake Apply"));
         Original->Modify();
         Original->WidgetTree->Modify();
@@ -1083,38 +1195,16 @@ namespace
         const TMap<FName, FGuid> OriginalVariableGuids =
             Original->WidgetVariableNameToGuidMap;
 
-        const auto Rollback = [&](const FString& Reason, bool bRestoreDisk) -> bool
+        const auto Rollback = [&](const FString& Reason) -> bool
         {
-            Transaction.Cancel();
-            Original->WidgetVariableNameToGuidMap = OriginalVariableGuids;
-            FString RestoreError;
-            if (!Change.bStructureChanged)
-            {
-                if (!CopyChangedProperties(Before, Staged, Original->WidgetTree,
-                    Snapshot.Get(), false, RestoreError))
-                {
-                    UE_LOG(LogTemp, Error, TEXT("XmlUI Re-bake Apply: in-memory rollback failed: %s"),
-                        *RestoreError);
-                }
-                FKismetEditorUtilities::CompileBlueprint(Original);
-            }
-            Metadata.SetValue(Original, TEXT("XmlUI.SourceDsl"), *Baseline);
-            Metadata.SetValue(Original, TEXT("XmlUI.SourceHash"), *BaselineHash);
-            if (bRestoreDisk && !FPlatformFileManager::Get().GetPlatformFile()
-                .CopyFile(*OriginalPackageFile, *BackupFile))
-            {
-                UE_LOG(LogTemp, Error, TEXT("XmlUI Re-bake Apply: disk rollback FAILED; restore manually from %s"),
-                    *BackupFile);
-            }
-            FText ReloadError;
-            if (!UPackageTools::ReloadPackages({ Original->GetOutermost() }, ReloadError, false))
-            {
-                UE_LOG(LogTemp, Error,
-                    TEXT("XmlUI Re-bake Apply: package reload after rollback failed: %s; reopen WBP from %s"),
-                    *ReloadError.ToString(), *BackupFile);
-            }
-            UE_LOG(LogTemp, Error, TEXT("XmlUI Re-bake Apply: FAILED: %s. Backup: %s"),
-                *Reason, *BackupFile);
+            Transaction.Cancel(); // Discard undo record; does NOT revert the tree.
+            const bool bRecovered = RestoreOriginalPackage(WbpPath, OriginalPackage,
+                OriginalPackageFile, BackupFile, RestoredFile, Before,
+                OriginalVariableGuids, Baseline, BaselineHash);
+            UE_LOG(LogTemp, Error,
+                TEXT("XmlUI Re-bake Apply: FAILED: %s; rollback=%s; backup=%s"),
+                *Reason, bRecovered ? TEXT("VERIFIED") : TEXT("INCOMPLETE"),
+                *BackupFile);
             return false;
         };
 
@@ -1123,14 +1213,14 @@ namespace
             if (!ApplyStructuralPlan(Before, Staged, Original->WidgetTree,
                 StagedBP->WidgetTree, Error))
             {
-                return Rollback(Error, false);
+                return Rollback(Error);
             }
             for (const TPair<FName, UWidget*>& Pair : OriginalIdentities)
             {
                 if (Original->WidgetTree->FindWidget(Pair.Key) != Pair.Value)
                 {
                     return Rollback(FString::Printf(TEXT("existing widget '%s' lost UObject identity"),
-                        *Pair.Key.ToString()), false);
+                        *Pair.Key.ToString()));
                 }
             }
             // This operation only changes the UMG widget tree, not the Blueprint's
@@ -1148,7 +1238,7 @@ namespace
             if (!CopyChangedProperties(Before, Staged, Original->WidgetTree,
                 StagedBP->WidgetTree, false, Error))
             {
-                return Rollback(Error, false);
+                return Rollback(Error);
             }
             FBlueprintEditorUtils::MarkBlueprintAsModified(Original);
         }
@@ -1158,8 +1248,14 @@ namespace
         if (!EnsureWidgetVariableGuids(Original->WidgetTree,
             Original->WidgetVariableNameToGuidMap, AssignedGuids, Error))
         {
-            return Rollback(Error, false);
+            return Rollback(Error);
         }
+#if WITH_DEV_AUTOMATION_TESTS
+        if (TestFailAt == TEXT("AfterMutation"))
+        {
+            return Rollback(TEXT("injected test failure after WidgetTree mutation"));
+        }
+#endif
         FKismetEditorUtilities::CompileBlueprint(Original);
         const UWidgetBlueprintGeneratedClass* RebuiltClass =
             Cast<UWidgetBlueprintGeneratedClass>(Original->GeneratedClass);
@@ -1177,8 +1273,14 @@ namespace
             || (!Change.bStructureChanged
                 && !VerifyCompiledChanges(Before, Staged, Original, StagedBP, Error)))
         {
-            return Rollback(Error.IsEmpty() ? TEXT("Blueprint compilation failed") : Error, false);
+            return Rollback(Error.IsEmpty() ? TEXT("Blueprint compilation failed") : Error);
         }
+#if WITH_DEV_AUTOMATION_TESTS
+        if (TestFailAt == TEXT("AfterCompile"))
+        {
+            return Rollback(TEXT("injected test failure after compilation"));
+        }
+#endif
         // Compilation must not replace or renumber any existing Blueprint
         // widget/animation GUIDs, because graph references rely on them.
         for (const TPair<FName, FGuid>& Pair : OriginalVariableGuids)
@@ -1188,7 +1290,7 @@ namespace
             {
                 return Rollback(FString::Printf(
                     TEXT("original variable GUID changed for '%s'"),
-                    *Pair.Key.ToString()), false);
+                    *Pair.Key.ToString()));
             }
         }
         // Structural compilation must not invalidate any existing widget object.
@@ -1199,7 +1301,7 @@ namespace
                 if (Original->WidgetTree->FindWidget(Pair.Key) != Pair.Value)
                 {
                     return Rollback(FString::Printf(TEXT("compile replaced existing widget '%s'"),
-                        *Pair.Key.ToString()), false);
+                        *Pair.Key.ToString()));
                 }
             }
         }
@@ -1207,14 +1309,14 @@ namespace
         if (!FXmlUIDslExporter::ExportWbpToDslFile(WbpPath, AppliedFile)
             || !ParseFile(AppliedFile, Applied, Error))
         {
-            return Rollback(TEXT("could not verify updated WBP export: ") + Error, false);
+            return Rollback(TEXT("could not verify updated WBP export: ") + Error);
         }
         FXmlRebakeDiff Verify;
         DiffNodes(Staged, Applied, FString(), Verify);
         if (Verify.Changed)
         {
             PrintDiff(TEXT("VERIFY-FAILED"), Verify);
-            return Rollback(TEXT("in-place result differs from staged candidate"), false);
+            return Rollback(TEXT("in-place result differs from staged candidate"));
         }
 
         Metadata.SetValue(Original, TEXT("XmlUI.SourceDsl"), *InputXml);
@@ -1224,9 +1326,15 @@ namespace
         const TArray<UPackage*> ChangedPackages{ Original->GetOutermost() };
         if (!UEditorLoadingAndSavingUtils::SavePackages(ChangedPackages, false))
         {
-            // SavePackages may already have touched the original file.
-            return Rollback(TEXT("saving updated WBP failed"), true);
+            // SavePackages may have partially overwritten the .uasset.
+            return Rollback(TEXT("saving updated WBP failed"));
         }
+#if WITH_DEV_AUTOMATION_TESTS
+        if (TestFailAt == TEXT("AfterSave"))
+        {
+            return Rollback(TEXT("injected test failure after saving updated WBP"));
+        }
+#endif
 
         UE_LOG(LogTemp, Display,
             TEXT("XmlUI Re-bake Apply: SUCCESS — %d changes (added=%d, modifiedPanels=%d, assignedGuids=%d); original WBP kept, backup=%s"),
@@ -1249,15 +1357,16 @@ static FAutoConsoleCommand GXmlUIRebakePreviewCommand(
 
 static FAutoConsoleCommand GXmlUIRebakeApplyCommand(
     TEXT("XmlUI.RebakeApply"),
-    TEXT("In-place property-only Re-bake. Usage: XmlUI.RebakeApply Wbp=/Game/UI/WBP_Name File=/absolute/path/ui.xml Confirm=YES"),
+    TEXT("Apply guarded property or structural updates. Usage: XmlUI.RebakeApply Wbp=/Game/UI/WBP_Name File=/absolute/path/ui.xml Confirm=YES [TestFailAt=AfterMutation|AfterCompile|AfterSave in dev builds]"),
     FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
     {
         const FString CommandLine = FString::Join(Args, TEXT(" "));
-        FString WbpPath, XmlPath, Confirmation;
+        FString WbpPath, XmlPath, Confirmation, TestFailAt;
         FParse::Value(*CommandLine, TEXT("Wbp="), WbpPath);
         FParse::Value(*CommandLine, TEXT("File="), XmlPath);
         FParse::Value(*CommandLine, TEXT("Confirm="), Confirmation);
-        Apply(WbpPath, XmlPath, Confirmation);
+        FParse::Value(*CommandLine, TEXT("TestFailAt="), TestFailAt);
+        Apply(WbpPath, XmlPath, Confirmation, TestFailAt);
     }));
 
 
@@ -1374,6 +1483,38 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
         VariableGuids.FindChecked(FName(TEXT("NewText"))).IsValid());
     TestTrue(TEXT("original A GUID remains unchanged after repair"),
         VariableGuids.FindChecked(FName(TEXT("A"))) == AGuid);
+
+    // Byte-for-byte restoration covers fields that are not in the XML DSL,
+    // including Blueprint graphs, widget slots and package metadata.
+    const FString RollbackToken = FGuid::NewGuid().ToString(EGuidFormats::Digits);
+    const FString OriginalFile = FPaths::Combine(FPaths::ProjectSavedDir(),
+        TEXT("XmlUIRollbackTest_") + RollbackToken + TEXT("_source.tmp"));
+    const FString BackupFile = FPaths::Combine(FPaths::ProjectSavedDir(),
+        TEXT("XmlUIRollbackTest_") + RollbackToken + TEXT("_backup.tmp"));
+    const FString OriginalContent = TEXT("original UAsset bytes including unexported data");
+    const FString ModifiedContent = TEXT("mutated data");
+    TestTrue(TEXT("create original file for rollback regression"),
+        FFileHelper::SaveStringToFile(OriginalContent, *OriginalFile));
+    IPlatformFile& Platform = FPlatformFileManager::Get().GetPlatformFile();
+    TestTrue(TEXT("create complete backup"),
+        Platform.CopyFile(*BackupFile, *OriginalFile));
+    TestTrue(TEXT("backup is identical"), IdenticalAssetFiles(OriginalFile, BackupFile));
+    TestTrue(TEXT("simulate a modified on-disk package"),
+        FFileHelper::SaveStringToFile(ModifiedContent, *OriginalFile));
+    TestFalse(TEXT("modified package differs from backup"),
+        IdenticalAssetFiles(OriginalFile, BackupFile));
+    TestTrue(TEXT("restore original package bytes"),
+        Platform.CopyFile(*OriginalFile, *BackupFile));
+    TestTrue(TEXT("restored package equals backup byte-for-byte"),
+        IdenticalAssetFiles(OriginalFile, BackupFile));
+    TestTrue(TEXT("backup was preserved for manual recovery"),
+        Platform.FileExists(*BackupFile));
+    FString RestoredContent;
+    TestTrue(TEXT("read restored package"),
+        FFileHelper::LoadFileToString(RestoredContent, *OriginalFile));
+    TestEqual(TEXT("original content preserved"), RestoredContent, OriginalContent);
+    IFileManager::Get().Delete(*OriginalFile);
+    IFileManager::Get().Delete(*BackupFile);
 
     FXmlNodeDesc DeletedStructure;
     TestTrue(TEXT("parse deletion candidate"),
