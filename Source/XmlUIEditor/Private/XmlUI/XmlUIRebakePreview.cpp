@@ -1354,6 +1354,22 @@ namespace
                         Error = FString::Printf(TEXT("failed to duplicate new widget '%s'"), *Name);
                         return false;
                     }
+                    // Duplication can copy the staged widget's Slot subobject,
+                    // whose Parent still points to the temporary candidate
+                    // panel. UWidget::GetParent() then reports a foreign panel
+                    // even though this is a newly inserted widget.
+                    // Drop only the duplicated slot, not the candidate slot:
+                    // InsertChildAt creates the real slot from StageWidget->Slot.
+                    // Do NOT call RemoveFromParent(), which would mutate the
+                    // candidate tree and destroy our slot template.
+                    Existing->Slot = nullptr;
+                    if (Existing->GetParent())
+                    {
+                        Error = FString::Printf(
+                            TEXT("new widget '%s' retained a parent after clearing staged slot"),
+                            *Name);
+                        return false;
+                    }
                     ExistingByName.Add(FName(*Name), Existing);
                 }
                 if (!Existing->GetParent())
@@ -2070,6 +2086,16 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("existing B preserved"), OldRoot->GetChildAt(0) == OldB);
     TestTrue(TEXT("new child inserted by name"), OldRoot->GetChildAt(1)
         && OldRoot->GetChildAt(1)->GetFName() == FName(TEXT("NewText")));
+    // The staged child has a Slot/Parent associated with NewRoot.
+    // A duplicated widget must receive a fresh slot belonging to OldRoot,
+    // rather than appearing to belong to the temporary candidate panel.
+    TestTrue(TEXT("staged widget remains owned by candidate panel"),
+        NewText->GetParent() == NewRoot);
+    TestTrue(TEXT("inserted widget belongs to original panel"),
+        OldRoot->GetChildAt(1) && OldRoot->GetChildAt(1)->GetParent() == OldRoot);
+    TestTrue(TEXT("inserted widget has an independent destination slot"),
+        OldRoot->GetChildAt(1) && OldRoot->GetChildAt(1)->Slot
+        && OldRoot->GetChildAt(1)->Slot != NewText->Slot);
     TestTrue(TEXT("existing A preserved"), OldRoot->GetChildAt(2) == OldA);
 
     // Regression for UE5.8 WidgetBlueprintCompiler.cpp:781: an inserted
@@ -2353,6 +2379,10 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
         !MixedRemove->IsIn(MixedTree));
     TestTrue(TEXT("inserted image is present"),
         MixedRoot->GetChildAt(0)->GetFName() == FName(TEXT("NewIcon")));
+    TestTrue(TEXT("mixed inserted image has the source panel as parent"),
+        MixedRoot->GetChildAt(0)->GetParent() == MixedRoot);
+    TestTrue(TEXT("staged image remains parented in candidate tree"),
+        MixedStageIcon->GetParent() == MixedStageRoot);
     TestTrue(TEXT("mixed hierarchy matches staged tree"),
         CompareGeneratedStructure(MixedTree->RootWidget,
             MixedStagedTree->RootWidget, Error));
