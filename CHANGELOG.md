@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Slot-aware attribute validation: child attributes are checked against the actual parent container semantics (Canvas, Grid, Overlay, linear panels, etc.).
 - Typed value validation for ranges, colors, vectors/margins, alignments, booleans, ScaleBox enums, and brush resource-path syntax.
 
+### Fixed
+- Structural Re-bake Apply now marks a modified Widget Blueprint and performs one explicit full compile instead of requesting skeleton recompilation and editor notifications through `MarkBlueprintAsStructurallyModified` first. This addresses a handled ensure reported at that call site in UE5.8; full compiler/template verification remains active.
+
 ## [1.0.0] - 2026-09-09
 
 ### Added

@@ -1059,7 +1059,15 @@ namespace
                         *Pair.Key.ToString()), false);
                 }
             }
-            FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Original);
+            // This operation only changes the UMG widget tree, not the Blueprint's
+            // declared functions, graphs or member variables. Structural marking
+            // synchronously triggers a *second*, skeleton-only compilation and
+            // editor notifications before the full compile below. With an open
+            // Widget Blueprint editor this can hit a handled ensure during
+            // skeleton reconstruction (even if the final WBP is correct).
+            // Mark the Blueprint dirty here and perform exactly one explicit
+            // full compilation after both edit paths.
+            FBlueprintEditorUtils::MarkBlueprintAsModified(Original);
         }
         else
         {
