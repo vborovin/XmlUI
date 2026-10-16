@@ -3,7 +3,15 @@
 #include "XmlVisualStyle.h"
 
 #include "Editor.h"
+#include "Animation/WidgetAnimation.h"
+#include "Animation/WidgetAnimationBinding.h"
+#include "EdGraph/EdGraphNode.h"
+#include "EdGraph/EdGraphPin.h"
+#include "K2Node_CallFunction.h"
+#include "K2Node_ComponentBoundEvent.h"
+#include "K2Node_Variable.h"
 #include "Blueprint/WidgetTree.h"
+#include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetBlueprintGeneratedClass.h"
 #include "Components/TextBlock.h"
 #include "Components/PanelWidget.h"
@@ -759,13 +767,143 @@ namespace
             || Widget->IsA<UHorizontalBox>() || Widget->IsA<UOverlay>());
     }
 
+
+    // A deletion may only remove a leaf with no known dependencies.
+    // This check intentionally fails closed on dynamic GetWidgetFromName calls.
+    // External native code and runtime-created name-based lookups cannot be
+    // proven safe from within a single UWidgetBlueprint.
+    bool CheckWidgetDeletionDependencies(const UWidgetBlueprint* BP,
+        const UWidget* Widget, FString& Error)
+    {
+        if (!BP || !Widget || !BP->ParentClass)
+        {
+            Error = TEXT("deletion requires a valid widget Blueprint and parent class");
+            return false;
+        }
+        const FName TargetName = Widget->GetFName();
+        const FString TargetString = TargetName.ToString();
+
+        // Includes BindWidget, BindWidgetOptional, and native properties with
+        // the same name even without UMG metadata (conservative).
+        for (TFieldIterator<FProperty> It(BP->ParentClass); It; ++It)
+        {
+            const FProperty* Property = *It;
+            if (Property && Property->GetFName() == TargetName)
+            {
+                const bool bBinding = Property->HasMetaData(TEXT("BindWidget"))
+                    || Property->HasMetaData(TEXT("BindWidgetOptional"))
+                    || Property->HasMetaData(TEXT("OptionalWidget"));
+                Error = FString::Printf(
+                    TEXT("widget '%s' is referenced by %s C++ property '%s' on %s"),
+                    *TargetString, bBinding ? TEXT("BindWidget/native") : TEXT("native"),
+                    *TargetString, *BP->ParentClass->GetName());
+                return false;
+            }
+        }
+
+        // Designer bindings can be present without explicit Blueprint graph
+        // variable nodes. Removing the widget invalidates their ObjectName.
+        for (const FDelegateEditorBinding& Binding : BP->Bindings)
+        {
+            if (Binding.ObjectName == TargetString)
+            {
+                Error = FString::Printf(
+                    TEXT("widget '%s' has a UMG property/delegate binding '%s'"),
+                    *TargetString, *Binding.PropertyName.ToString());
+                return false;
+            }
+        }
+
+        // Protect both widget tracks and slot tracks in UMG animations.
+        for (const UWidgetAnimation* Animation : BP->Animations)
+        {
+            if (!Animation)
+            {
+                continue;
+            }
+            for (const FWidgetAnimationBinding& Binding : Animation->GetBindings())
+            {
+                if (Binding.WidgetName == TargetName
+                    || Binding.SlotWidgetName == TargetName)
+                {
+                    Error = FString::Printf(
+                        TEXT("widget '%s' is bound to animation '%s'"),
+                        *TargetString, *Animation->GetName());
+                    return false;
+                }
+            }
+        }
+
+        // Gather nodes across the EventGraph, functions and nested graphs,
+        // not just the visible Ubergraph. Reject actual variable references,
+        // literal/name pins and ambiguous dynamic name-based lookups.
+        TArray<UEdGraphNode*> Nodes;
+        FBlueprintEditorUtils::GetAllNodesOfClass<UEdGraphNode>(BP, Nodes);
+        for (UEdGraphNode* Node : Nodes)
+        {
+            if (!Node)
+            {
+                continue;
+            }
+            if (UK2Node_Variable* Variable = Cast<UK2Node_Variable>(Node))
+            {
+                if (Variable->GetVarName() == TargetName)
+                {
+                    Error = FString::Printf(
+                        TEXT("widget '%s' is used by Blueprint variable node '%s'"),
+                        *TargetString, *Node->GetName());
+                    return false;
+                }
+            }
+            if (const UK2Node_ComponentBoundEvent* BoundEvent =
+                Cast<UK2Node_ComponentBoundEvent>(Node))
+            {
+                if (BoundEvent->ComponentPropertyName == TargetName)
+                {
+                    Error = FString::Printf(
+                        TEXT("widget '%s' is referenced by bound Blueprint event '%s'"),
+                        *TargetString, *Node->GetName());
+                    return false;
+                }
+            }
+            if (UK2Node_CallFunction* Call = Cast<UK2Node_CallFunction>(Node))
+            {
+                if (Call->GetFunctionName() == TEXT("GetWidgetFromName"))
+                {
+                    Error = FString::Printf(
+                        TEXT("Blueprint graph contains dynamic GetWidgetFromName lookup '%s'; cannot prove widget '%s' is unused"),
+                        *Node->GetName(), *TargetString);
+                    return false;
+                }
+            }
+            for (const UEdGraphPin* Pin : Node->Pins)
+            {
+                if (!Pin)
+                {
+                    continue;
+                }
+                if (Pin->DefaultObject == Widget
+                    || Pin->DefaultValue == TargetString
+                    || Pin->DefaultTextValue.ToString() == TargetString)
+                {
+                    Error = FString::Printf(
+                        TEXT("widget '%s' is referenced by pin '%s' of Blueprint node '%s'"),
+                        *TargetString, *Pin->PinName.ToString(), *Node->GetName());
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     bool ValidateStructuralPlan(const FXmlNodeDesc& Before, const FXmlNodeDesc& After,
         const UWidgetTree* ExistingTree, const UWidgetTree* CandidateTree,
-        int32& Added, int32& Reordered, int32& Moved, FString& Error)
+        int32& Added, int32& Reordered, int32& Moved, int32& Deleted, FString& Error)
     {
         Added = 0;
         Reordered = 0;
         Moved = 0;
+        Deleted = 0;
         TMap<FString, FStructuralNode> Old, New;
         IndexStructuralNodes(Before, FString(), Old);
         IndexStructuralNodes(After, FString(), New);
@@ -783,8 +921,21 @@ namespace
             const FStructuralNode* Candidate = New.Find(Pair.Key);
             if (!Candidate)
             {
-                Error = FString::Printf(TEXT("deleted widget '%s' (deletion is not supported)"), *Pair.Key);
-                return false;
+                const FXmlNodeDesc& Removed = *Pair.Value.Node;
+                UWidget* Widget = ExistingTree->FindWidget(FName(*Pair.Key));
+                UPanelWidget* Parent = Cast<UPanelWidget>(
+                    ExistingTree->FindWidget(FName(*Pair.Value.ParentName)));
+                if (!IsSupportedMovedLeaf(Removed) || !Parent
+                    || !IsSupportedStructuralParent(Parent)
+                    || !Widget || Widget->GetParent() != Parent)
+                {
+                    Error = FString::Printf(
+                        TEXT("deletion of '%s' requires a leaf Text/Image/Spacer in an existing supported panel"),
+                        *Pair.Key);
+                    return false;
+                }
+                ++Deleted;
+                continue;
             }
             const bool bMoved = Candidate->ParentName != Pair.Value.ParentName;
             if (Candidate->Node->Tag != Pair.Value.Node->Tag
@@ -883,7 +1034,12 @@ namespace
         // All modified panels must be existing supported panels, including move sources/destinations.
         for (const TPair<FString, FStructuralNode>& Pair : Old)
         {
-            const FStructuralNode& Desired = New.FindChecked(Pair.Key);
+            const FStructuralNode* DesiredEntry = New.Find(Pair.Key);
+            if (!DesiredEntry)
+            {
+                continue; // deleted leaf is not a panel
+            }
+            const FStructuralNode& Desired = *DesiredEntry;
             const FXmlNodeDesc& OldNode = *Pair.Value.Node;
             const FXmlNodeDesc& NewNode = *Desired.Node;
             bool bChangedOrder = OldNode.Children.Num() != NewNode.Children.Num();
@@ -932,12 +1088,38 @@ namespace
             ExistingByName.Add(Widget->GetFName(), Widget);
         }
 
+        // Remove explicitly approved leaf widgets from the hierarchy before
+        // attaching/reordering survivors. They are no longer serialized via
+        // the WidgetTree; clear their GUID in Apply only after mutation succeeds.
+        for (const TPair<FString, FStructuralNode>& Pair : Old)
+        {
+            if (New.Contains(Pair.Key))
+            {
+                continue;
+            }
+            UWidget* Widget = ExistingByName.FindRef(FName(*Pair.Key));
+            if (!Widget)
+            {
+                Error = FString::Printf(TEXT("deleted widget '%s' is missing"), *Pair.Key);
+                return false;
+            }
+            Widget->Modify();
+            if (!ExistingTree->RemoveWidget(Widget)
+                || ExistingTree->FindWidget(FName(*Pair.Key)))
+            {
+                Error = FString::Printf(TEXT("could not remove widget '%s' from WidgetTree"),
+                    *Pair.Key);
+                return false;
+            }
+            ExistingByName.Remove(FName(*Pair.Key));
+        }
+
         // Detach every moved leaf before processing any destination panel.
         // This makes the operation independent of TMap iteration order.
         for (const TPair<FString, FStructuralNode>& Pair : Old)
         {
-            const FStructuralNode& Target = New.FindChecked(Pair.Key);
-            if (Pair.Value.ParentName == Target.ParentName)
+            const FStructuralNode* Target = New.Find(Pair.Key);
+            if (!Target || Pair.Value.ParentName == Target->ParentName)
             {
                 continue;
             }
@@ -962,8 +1144,13 @@ namespace
         // One pass per panel, including detached moves and new leaves.
         for (const TPair<FString, FStructuralNode>& Pair : Old)
         {
+            const FStructuralNode* DesiredNode = New.Find(Pair.Key);
+            if (!DesiredNode)
+            {
+                continue; // an approved deleted leaf
+            }
             const FXmlNodeDesc& OldNode = *Pair.Value.Node;
-            const FXmlNodeDesc& Desired = *New.FindChecked(Pair.Key).Node;
+            const FXmlNodeDesc& Desired = *DesiredNode->Node;
             bool bChanged = OldNode.Children.Num() != Desired.Children.Num();
             for (int32 I = 0; I < FMath::Min(OldNode.Children.Num(), Desired.Children.Num()); ++I)
             {
@@ -1360,14 +1547,43 @@ namespace
             UE_LOG(LogTemp, Error, TEXT("XmlUI Re-bake Apply: staged WidgetTree not found"));
             return false;
         }
-        int32 Added = 0, Reordered = 0, Moved = 0;
+        int32 Added = 0, Reordered = 0, Moved = 0, Deleted = 0;
+        TSet<FName> DeletedNames;
         if (Change.bStructureChanged)
         {
             if (!ValidateStructuralPlan(Before, Staged, Original->WidgetTree,
-                StagedBP->WidgetTree, Added, Reordered, Moved, Error))
+                StagedBP->WidgetTree, Added, Reordered, Moved, Deleted, Error))
             {
                 UE_LOG(LogTemp, Error, TEXT("XmlUI Re-bake Apply: structural change rejected: %s"), *Error);
                 return false;
+            }
+            if (Deleted > 0)
+            {
+                TMap<FString, FStructuralNode> PreviousNodes, TargetNodes;
+                IndexStructuralNodes(Before, FString(), PreviousNodes);
+                IndexStructuralNodes(Staged, FString(), TargetNodes);
+                for (const TPair<FString, FStructuralNode>& Pair : PreviousNodes)
+                {
+                    if (TargetNodes.Contains(Pair.Key))
+                    {
+                        continue;
+                    }
+                    const FName WidgetName(*Pair.Key);
+                    UWidget* Widget = Original->WidgetTree->FindWidget(WidgetName);
+                    if (!CheckWidgetDeletionDependencies(Original, Widget, Error))
+                    {
+                        UE_LOG(LogTemp, Error,
+                            TEXT("XmlUI Re-bake Apply: deletion rejected: %s"), *Error);
+                        return false;
+                    }
+                    DeletedNames.Add(WidgetName);
+                }
+                if (DeletedNames.Num() != Deleted)
+                {
+                    UE_LOG(LogTemp, Error,
+                        TEXT("XmlUI Re-bake Apply: deletion count mismatch in preflight"));
+                    return false;
+                }
             }
         }
         else if (!CopyChangedProperties(Before, Staged, Original->WidgetTree,
@@ -1430,11 +1646,22 @@ namespace
             }
             for (const TPair<FName, UWidget*>& Pair : OriginalIdentities)
             {
-                if (Original->WidgetTree->FindWidget(Pair.Key) != Pair.Value)
+                if (!DeletedNames.Contains(Pair.Key)
+                    && Original->WidgetTree->FindWidget(Pair.Key) != Pair.Value)
                 {
                     return Rollback(FString::Printf(TEXT("existing widget '%s' lost UObject identity"),
                         *Pair.Key.ToString()));
                 }
+            }
+            for (const FName& DeletedName : DeletedNames)
+            {
+                if (Original->WidgetTree->FindWidget(DeletedName))
+                {
+                    return Rollback(FString::Printf(
+                        TEXT("deleted widget '%s' is still in the WidgetTree"),
+                        *DeletedName.ToString()));
+                }
+                Original->WidgetVariableNameToGuidMap.Remove(DeletedName);
             }
             // This operation only changes the UMG widget tree, not the Blueprint's
             // declared functions, graphs or member variables. Structural marking
@@ -1498,6 +1725,16 @@ namespace
         // widget/animation GUIDs, because graph references rely on them.
         for (const TPair<FName, FGuid>& Pair : OriginalVariableGuids)
         {
+            if (DeletedNames.Contains(Pair.Key))
+            {
+                if (Original->WidgetVariableNameToGuidMap.Contains(Pair.Key))
+                {
+                    return Rollback(FString::Printf(
+                        TEXT("deleted widget '%s' kept an obsolete GUID"),
+                        *Pair.Key.ToString()));
+                }
+                continue;
+            }
             const FGuid* Saved = Original->WidgetVariableNameToGuidMap.Find(Pair.Key);
             if (!Saved || *Saved != Pair.Value)
             {
@@ -1511,7 +1748,8 @@ namespace
         {
             for (const TPair<FName, UWidget*>& Pair : OriginalIdentities)
             {
-                if (Original->WidgetTree->FindWidget(Pair.Key) != Pair.Value)
+                if (!DeletedNames.Contains(Pair.Key)
+                    && Original->WidgetTree->FindWidget(Pair.Key) != Pair.Value)
                 {
                     return Rollback(FString::Printf(TEXT("compile replaced existing widget '%s'"),
                         *Pair.Key.ToString()));
@@ -1550,8 +1788,8 @@ namespace
 #endif
 
         UE_LOG(LogTemp, Display,
-            TEXT("XmlUI Re-bake Apply: SUCCESS — %d changes (added=%d, moved=%d, modifiedPanels=%d, assignedGuids=%d); original WBP kept, backup=%s"),
-            Change.Changed, Added, Moved, Reordered, AssignedGuids, *BackupFile);
+            TEXT("XmlUI Re-bake Apply: SUCCESS — %d changes (added=%d, moved=%d, deleted=%d, modifiedPanels=%d, assignedGuids=%d); original WBP kept, backup=%s"),
+            Change.Changed, Added, Moved, Deleted, Reordered, AssignedGuids, *BackupFile);
         return true;
     }
 }
@@ -1645,10 +1883,10 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
     NewRoot->AddChild(NewText);
     NewRoot->AddChild(NewA);
 
-    int32 AddedCount = 0, ReorderedPanels = 0, MovedCount = 0;
+    int32 AddedCount = 0, ReorderedPanels = 0, MovedCount = 0, DeletedCount = 0;
     TestTrue(TEXT("valid leaf addition and reorder"),
         ValidateStructuralPlan(OldStructure, NewStructure, OldTree, NewTree,
-            AddedCount, ReorderedPanels, MovedCount, Error));
+            AddedCount, ReorderedPanels, MovedCount, DeletedCount, Error));
     TestEqual(TEXT("one added widget"), AddedCount, 1);
     TestEqual(TEXT("one modified panel"), ReorderedPanels, 1);
     TestTrue(TEXT("apply structural patch to test tree"),
@@ -1792,10 +2030,10 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
     StageRight->AddChild(StageStatic);
     StageRight->AddChild(StageMoved);
 
-    int32 MoveAdded = 0, MovePanels = 0, MoveCount = 0;
+    int32 MoveAdded = 0, MovePanels = 0, MoveCount = 0, MoveDeleted = 0;
     TestTrue(TEXT("preflight allows leaf reparent between supported panels"),
         ValidateStructuralPlan(MoveOld, MoveNew, MoveTree, MoveStagedTree,
-            MoveAdded, MovePanels, MoveCount, Error));
+            MoveAdded, MovePanels, MoveCount, MoveDeleted, Error));
     TestEqual(TEXT("no widgets added when moving"), MoveAdded, 0);
     TestEqual(TEXT("one existing widget moved"), MoveCount, 1);
     TestEqual(TEXT("two panels changed by move"), MovePanels, 2);
@@ -1842,16 +2080,102 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
         UTextBlock::StaticClass(), TEXT("StaticLabel")));
     TestFalse(TEXT("reparent with text property change is rejected"),
         ValidateStructuralPlan(MoveOld, MoveWithEdit, FreshTree, MoveStagedTree,
-            MoveAdded, MovePanels, MoveCount, Error));
+            MoveAdded, MovePanels, MoveCount, MoveDeleted, Error));
 
     FXmlNodeDesc DeletedStructure;
     TestTrue(TEXT("parse deletion candidate"),
         UXmlDslParser::ParseXmlString(
             TEXT("<Vertical Name=\"Root\"><Text Name=\"A\" Text=\"A\"/></Vertical>"),
             DeletedStructure, Error));
-    TestFalse(TEXT("deletion is rejected"),
-        ValidateStructuralPlan(OldStructure, DeletedStructure, OldTree, NewTree,
-            AddedCount, ReorderedPanels, MovedCount, Error));
+    // A safe deletion removes exactly one leaf, leaves the parent and other
+    // siblings unchanged, and never reuses the removed widget's GUID.
+    UWidgetTree* DeleteTree = NewObject<UWidgetTree>();
+    UVerticalBox* DeleteRoot = DeleteTree->ConstructWidget<UVerticalBox>(
+        UVerticalBox::StaticClass(), TEXT("Root"));
+    DeleteTree->RootWidget = DeleteRoot;
+    UTextBlock* KeepA = DeleteTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("A"));
+    UTextBlock* RemoveB = DeleteTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("B"));
+    DeleteRoot->AddChild(KeepA);
+    DeleteRoot->AddChild(RemoveB);
+    UWidgetTree* DeleteStageTree = NewObject<UWidgetTree>();
+    UVerticalBox* DeleteStageRoot = DeleteStageTree->ConstructWidget<UVerticalBox>(
+        UVerticalBox::StaticClass(), TEXT("Root"));
+    DeleteStageTree->RootWidget = DeleteStageRoot;
+    DeleteStageRoot->AddChild(DeleteStageTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("A")));
+
+    int32 DeleteAdded = 0, DeletePanels = 0, DeleteMoved = 0, DeleteCount = 0;
+    TestTrue(TEXT("preflight accepts leaf deletion in supported panel"),
+        ValidateStructuralPlan(OldStructure, DeletedStructure, DeleteTree, DeleteStageTree,
+            DeleteAdded, DeletePanels, DeleteMoved, DeleteCount, Error));
+    TestEqual(TEXT("one leaf slated for deletion"), DeleteCount, 1);
+    TestEqual(TEXT("one affected parent"), DeletePanels, 1);
+
+    // The actual Blueprint owner is required for dependency validation.
+    FString DependencyError;
+    TestFalse(TEXT("unmanaged deletion fails closed"),
+        CheckWidgetDeletionDependencies(nullptr, RemoveB, DependencyError));
+    UWidgetBlueprint* TestWidgetBP = NewObject<UWidgetBlueprint>();
+    TestWidgetBP->ParentClass = UUserWidget::StaticClass();
+    TestTrue(TEXT("unreferenced leaf passes dependency preflight"),
+        CheckWidgetDeletionDependencies(TestWidgetBP, RemoveB, DependencyError));
+
+    FDelegateEditorBinding EditorBinding;
+    EditorBinding.ObjectName = TEXT("B");
+    TestWidgetBP->Bindings.Add(EditorBinding);
+    TestFalse(TEXT("designer binding prevents deletion"),
+        CheckWidgetDeletionDependencies(TestWidgetBP, RemoveB, DependencyError));
+    TestTrue(TEXT("designer binding error names the widget"),
+        DependencyError.Contains(TEXT("B")));
+    TestWidgetBP->Bindings.Empty();
+
+    UWidgetAnimation* TestAnimation = NewObject<UWidgetAnimation>(TestWidgetBP);
+    FWidgetAnimationBinding AnimationBinding;
+    AnimationBinding.WidgetName = FName(TEXT("B"));
+    TestAnimation->AnimationBindings.Add(AnimationBinding);
+    TestWidgetBP->Animations.Add(TestAnimation);
+    TestFalse(TEXT("UMG animation binding prevents deletion"),
+        CheckWidgetDeletionDependencies(TestWidgetBP, RemoveB, DependencyError));
+    TestWidgetBP->Animations.Empty();
+
+    TestTrue(TEXT("remove unbound leaf from WidgetTree"),
+        ApplyStructuralPlan(OldStructure, DeletedStructure,
+            DeleteTree, DeleteStageTree, Error));
+    TestEqual(TEXT("one widget remains"), DeleteRoot->GetChildrenCount(), 1);
+    TestTrue(TEXT("surviving widget preserved by identity"), DeleteRoot->GetChildAt(0) == KeepA);
+    TestTrue(TEXT("deleted widget no longer accessible by name"),
+        DeleteTree->FindWidget(FName(TEXT("B"))) == nullptr);
+    TestTrue(TEXT("resulting tree matches staged hierarchy"),
+        CompareGeneratedStructure(DeleteTree->RootWidget, DeleteStageTree->RootWidget, Error));
+
+    // Deleting an entire subtree remains disallowed.
+    FXmlNodeDesc ParentDeleteOld, ParentDeleteNew;
+    TestTrue(TEXT("parse subtree deletion source"),
+        UXmlDslParser::ParseXmlString(
+            TEXT("<Vertical Name=\"Root\"><Vertical Name=\"Nested\">"
+                "<Text Name=\"NestedText\" Text=\"Keep\"/></Vertical></Vertical>"),
+            ParentDeleteOld, Error));
+    TestTrue(TEXT("parse subtree deletion target"),
+        UXmlDslParser::ParseXmlString(
+            TEXT("<Vertical Name=\"Root\"/>"), ParentDeleteNew, Error));
+    UWidgetTree* ParentTree = NewObject<UWidgetTree>();
+    UVerticalBox* ParentRoot = ParentTree->ConstructWidget<UVerticalBox>(
+        UVerticalBox::StaticClass(), TEXT("Root"));
+    ParentTree->RootWidget = ParentRoot;
+    UVerticalBox* Nested = ParentTree->ConstructWidget<UVerticalBox>(
+        UVerticalBox::StaticClass(), TEXT("Nested"));
+    ParentRoot->AddChild(Nested);
+    Nested->AddChild(ParentTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("NestedText")));
+    UWidgetTree* ParentStageTree = NewObject<UWidgetTree>();
+    ParentStageTree->RootWidget = ParentStageTree->ConstructWidget<UVerticalBox>(
+        UVerticalBox::StaticClass(), TEXT("Root"));
+    TestFalse(TEXT("deleting a nonleaf subtree is refused"),
+        ValidateStructuralPlan(ParentDeleteOld, ParentDeleteNew,
+            ParentTree, ParentStageTree,
+            DeleteAdded, DeletePanels, DeleteMoved, DeleteCount, Error));
     return true;
 }
 #endif

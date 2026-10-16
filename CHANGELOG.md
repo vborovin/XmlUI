@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Experimental guarded deletion of unreferenced leaf Text/Image/Spacer widgets in existing Vertical/Horizontal/Overlay panels. Preflight detects native/BindWidget properties, Blueprint graph variables/pins, UMG designer bindings, animation tracks and ambiguous GetWidgetFromName calls; referenced widgets and subtree deletion are rejected.
+- Deleted widget GUIDs are removed before compilation, while all surviving UObject identities/GUIDs are verified; rollback retains complete original asset backup. Added regression tests for positive leaf deletion, designer/animation dependency refusal and subtree deletion rejection.
 - Experimental cross-panel leaf reparenting in Structural Re-bake: move existing Text/Image/Spacer between existing VerticalBox/HorizontalBox/Overlay panels while preserving widget UObject identities and GUIDs. Copy destination slot from the staged WBP, detach all moves first, reject non-leaf reparenting and non-slot property changes.
 - Preview now reports moved widgets explicitly rather than as unrelated removal/addition; regression covers a VerticalBox-to-Overlay transfer, identity preservation, and move+property conflict rejection.
 - Explicit `XmlUI.AdoptBaseline` for unmanaged or duplicated WBP copies: require confirmed user action, successful disk round-trip, missing metadata and a persistent backup before writing source metadata.

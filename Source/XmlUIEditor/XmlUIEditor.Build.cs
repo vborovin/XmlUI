@@ -23,6 +23,7 @@ public class XmlUIEditor : ModuleRules
 			"UnrealEd",
 			"ToolMenus",
 			"UMGEditor",
+			"BlueprintGraph",
 			"Kismet",
 			"AssetTools",
 			"DesktopPlatform",
