@@ -882,7 +882,7 @@ namespace
                 {
                     continue;
                 }
-                if (Pin->DefaultObject == Widget
+                if (Pin->DefaultObject.Get() == Widget
                     || Pin->DefaultValue == TargetString
                     || Pin->DefaultTextValue.ToString() == TargetString)
                 {
