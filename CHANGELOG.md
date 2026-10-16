@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Mixed structural/property re-bake: existing widgets now receive allowlisted property edits by stable name after structural operations; staging preflight rejects unsupported edits and compiled output is checked.
+- Regression tests for moving a Text while changing Text/RenderOpacity, forbidding unmoved-slot changes, and combining insert/delete with text edits.
 - Experimental whole-subtree deletion in Structural Re-bake: remove an existing nested container and every descendant only when the parent panel is supported, the entire subtree is absent from the target XML, and all descendant dependency checks pass. Evacuate every removed UObject to the transient package before pruning each widget GUID; verify remaining identities and compiled hierarchy. Regression covers recursive deletion, a descendant animation binding and rejected partial subtree deletion.
 - Experimental guarded deletion of unreferenced leaf Text/Image/Spacer widgets in existing Vertical/Horizontal/Overlay panels. Preflight detects native/BindWidget properties, Blueprint graph variables/pins, UMG designer bindings, animation tracks and ambiguous GetWidgetFromName calls; referenced widgets and subtree deletion are rejected.
 - Deleted widget GUIDs are removed before compilation, while all surviving UObject identities/GUIDs are verified; rollback retains complete original asset backup. Added regression tests for positive leaf deletion, designer/animation dependency refusal and subtree deletion rejection.

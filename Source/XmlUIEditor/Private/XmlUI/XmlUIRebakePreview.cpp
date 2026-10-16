@@ -14,6 +14,7 @@
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetBlueprintGeneratedClass.h"
 #include "Components/TextBlock.h"
+#include "Components/Image.h"
 #include "Components/PanelWidget.h"
 #include "Components/ContentWidget.h"
 #include "Components/Button.h"
@@ -695,24 +696,6 @@ namespace
         }
     }
 
-    bool SameAttributes(const FXmlNodeDesc& A, const FXmlNodeDesc& B)
-    {
-        if (A.Attributes.Num() != B.Attributes.Num())
-        {
-            return false;
-        }
-        for (const TPair<FString, FString>& Pair : A.Attributes)
-        {
-            const FString* Value = B.Attributes.Find(Pair.Key);
-            if (!Value || *Value != Pair.Value)
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-
     int32 CountStructuralNodes(const FXmlNodeDesc& Node)
     {
         int32 Count = 1;
@@ -728,39 +711,6 @@ namespace
         return Node.Children.IsEmpty()
             && (Node.Tag == TEXT("Text") || Node.Tag == TEXT("Image")
                 || Node.Tag == TEXT("Spacer"));
-    }
-
-    // These attributes belong to the panel slot, not to the leaf widget.
-    // A reparent creates the destination slot from the compiled candidate.
-    bool IsReparentSlotAttribute(const FString& Key)
-    {
-        return Key == TEXT("Padding") || Key == TEXT("HAlign")
-            || Key == TEXT("VAlign") || Key == TEXT("SizeParam");
-    }
-
-    bool SameMovedLeafAttributes(const FXmlNodeDesc& A, const FXmlNodeDesc& B)
-    {
-        for (const TPair<FString, FString>& Pair : A.Attributes)
-        {
-            if (IsReparentSlotAttribute(Pair.Key))
-            {
-                continue;
-            }
-            const FString* Value = B.Attributes.Find(Pair.Key);
-            if (!Value || *Value != Pair.Value)
-            {
-                return false;
-            }
-        }
-        for (const TPair<FString, FString>& Pair : B.Attributes)
-        {
-            if (!IsReparentSlotAttribute(Pair.Key)
-                && !A.Attributes.Contains(Pair.Key))
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     bool IsSupportedStructuralParent(const UWidget* Widget)
@@ -954,6 +904,77 @@ namespace
         return true;
     }
 
+
+    // Apply the existing property allowlist to surviving widgets by stable
+    // name. Structural edits change child order/count, so the property-only
+    // recursive traversal cannot be used for mixed Re-bake.
+    //
+    // A moved leaf gets its slot from the staged destination panel. Strip
+    // slot attributes from the shallow property diff; only the widget's
+    // own allowlisted properties are copied onto the preserved UObject.
+    bool ForEachSurvivingPropertyChange(const FXmlNodeDesc& Before,
+        const FXmlNodeDesc& After,
+        TFunctionRef<bool(const FXmlNodeDesc&, const FXmlNodeDesc&, FString&)> Visit,
+        FString& Error)
+    {
+        TMap<FString, FStructuralNode> Old, New;
+        IndexStructuralNodes(Before, FString(), Old);
+        IndexStructuralNodes(After, FString(), New);
+        for (const TPair<FString, FStructuralNode>& Entry : Old)
+        {
+            const FStructuralNode* Target = New.Find(Entry.Key);
+            if (!Target)
+            {
+                continue; // Deleted widgets have no properties to copy.
+            }
+            FXmlNodeDesc OldFlat = *Entry.Value.Node;
+            FXmlNodeDesc NewFlat = *Target->Node;
+            OldFlat.Children.Reset();
+            NewFlat.Children.Reset();
+            if (Entry.Value.ParentName != Target->ParentName)
+            {
+                for (const TCHAR* SlotAttribute :
+                    { TEXT("Padding"), TEXT("HAlign"), TEXT("VAlign"), TEXT("SizeParam") })
+                {
+                    OldFlat.Attributes.Remove(SlotAttribute);
+                    NewFlat.Attributes.Remove(SlotAttribute);
+                }
+            }
+            if (!Visit(OldFlat, NewFlat, Error))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool CopySurvivingPropertyChanges(const FXmlNodeDesc& Before,
+        const FXmlNodeDesc& After, UWidgetTree* ExistingTree,
+        const UWidgetTree* CandidateTree, bool bDryRun, FString& Error)
+    {
+        return ForEachSurvivingPropertyChange(Before, After,
+            [ExistingTree, CandidateTree, bDryRun](
+                const FXmlNodeDesc& OldFlat, const FXmlNodeDesc& NewFlat,
+                FString& Failure)
+            {
+                return CopyChangedProperties(OldFlat, NewFlat,
+                    ExistingTree, CandidateTree, bDryRun, Failure);
+            }, Error);
+    }
+
+    bool VerifySurvivingCompiledProperties(const FXmlNodeDesc& Before,
+        const FXmlNodeDesc& After, const UWidgetBlueprint* Original,
+        const UWidgetBlueprint* Staged, FString& Error)
+    {
+        return ForEachSurvivingPropertyChange(Before, After,
+            [Original, Staged](const FXmlNodeDesc& OldFlat,
+                const FXmlNodeDesc& NewFlat, FString& Failure)
+            {
+                return VerifyCompiledChanges(OldFlat, NewFlat,
+                    Original, Staged, Failure);
+            }, Error);
+    }
+
     bool ValidateStructuralPlan(const FXmlNodeDesc& Before, const FXmlNodeDesc& After,
         const UWidgetTree* ExistingTree, const UWidgetTree* CandidateTree,
         int32& Added, int32& Reordered, int32& Moved, int32& Deleted, FString& Error)
@@ -1017,14 +1038,12 @@ namespace
                 return false;
             }
             const bool bMoved = Candidate->ParentName != Pair.Value.ParentName;
-            if (Candidate->Node->Tag != Pair.Value.Node->Tag
-                || (bMoved
-                    ? !SameMovedLeafAttributes(*Candidate->Node, *Pair.Value.Node)
-                    : !SameAttributes(*Candidate->Node, *Pair.Value.Node)))
+            // Property differences are validated independently through the
+            // existing property allowlist, even for moved leaves.
+            if (Candidate->Node->Tag != Pair.Value.Node->Tag)
             {
                 Error = FString::Printf(
-                    TEXT("existing widget '%s' has a tag or non-slot property change; do property-only Apply separately"),
-                    *Pair.Key);
+                    TEXT("existing widget '%s' changed its tag"), *Pair.Key);
                 return false;
             }
             if (bMoved)
@@ -1722,6 +1741,15 @@ namespace
                     return false;
                 }
             }
+            // Mixed structural + property changes must be rejected before
+            // backing up/mutating if ANY survivor has a non-allowlisted edit.
+            if (!CopySurvivingPropertyChanges(Before, Staged,
+                Original->WidgetTree, StagedBP->WidgetTree, true, Error))
+            {
+                UE_LOG(LogTemp, Error,
+                    TEXT("XmlUI Re-bake Apply: mixed property preflight rejected: %s"), *Error);
+                return false;
+            }
         }
         else if (!CopyChangedProperties(Before, Staged, Original->WidgetTree,
             StagedBP->WidgetTree, true, Error))
@@ -1802,6 +1830,13 @@ namespace
                 }
                 Original->WidgetVariableNameToGuidMap.Remove(DeletedName);
             }
+            // Structure is now final. Apply allowlisted staged properties
+            // to the preserved UObjects, including the reparented leaves.
+            if (!CopySurvivingPropertyChanges(Before, Staged,
+                Original->WidgetTree, StagedBP->WidgetTree, false, Error))
+            {
+                return Rollback(TEXT("mixed property update failed: ") + Error);
+            }
             // This operation only changes the UMG widget tree, not the Blueprint's
             // declared functions, graphs or member variables. Structural marking
             // synchronously triggers a *second*, skeleton-only compilation and
@@ -1849,8 +1884,9 @@ namespace
                 RebuiltTree->RootWidget, DesiredTree->RootWidget, Error));
         if (Original->Status == BS_Error || !VerifyTextTemplates(Original, Error)
             || !bStructureValid
-            || (!Change.bStructureChanged
-                && !VerifyCompiledChanges(Before, Staged, Original, StagedBP, Error)))
+            || (Change.bStructureChanged
+                ? !VerifySurvivingCompiledProperties(Before, Staged, Original, StagedBP, Error)
+                : !VerifyCompiledChanges(Before, Staged, Original, StagedBP, Error)))
         {
             return Rollback(Error.IsEmpty() ? TEXT("Blueprint compilation failed") : Error);
         }
@@ -2191,18 +2227,18 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("original GUID still belongs to moved widget"),
         PreservedGuids.FindChecked(FName(TEXT("MovedLabel"))) == MovedGuid);
 
-    // A move must not silently alter text/style; only destination slot
-    // attributes may differ, because a destination slot is recreated.
+    // Mixed Apply: reparent the leaf AND change Text/RenderOpacity while
+    // preserving the pre-existing UObject. The destination panel supplies
+    // the new slot, but non-slot properties use the property allowlist.
     FXmlNodeDesc MoveWithEdit;
     TestTrue(TEXT("parse property-changing move candidate"),
         UXmlDslParser::ParseXmlString(
             TEXT("<Horizontal Name=\"MoveRoot\"><Vertical Name=\"Left\"/>"
                 "<Overlay Name=\"Right\"><Text Name=\"StaticLabel\" Text=\"Static\"/>"
-                "<Text Name=\"MovedLabel\" Text=\"CHANGED\" FontSize=\"14\"/></Overlay>"
+                "<Text Name=\"MovedLabel\" Text=\"CHANGED\" FontSize=\"14\""
+                " RenderOpacity=\"0.45\"/></Overlay>"
                 "</Horizontal>"),
             MoveWithEdit, Error));
-    // Validate against an independent original tree, as the previous test
-    // deliberately changed MoveTree in place.
     UWidgetTree* FreshTree = NewObject<UWidgetTree>();
     UHorizontalBox* FreshRoot = FreshTree->ConstructWidget<UHorizontalBox>(
         UHorizontalBox::StaticClass(), TEXT("MoveRoot"));
@@ -2213,13 +2249,113 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
         UOverlay::StaticClass(), TEXT("Right"));
     FreshRoot->AddChild(FreshLeft);
     FreshRoot->AddChild(FreshRight);
-    FreshLeft->AddChild(FreshTree->ConstructWidget<UTextBlock>(
-        UTextBlock::StaticClass(), TEXT("MovedLabel")));
+    UTextBlock* FreshMoved = FreshTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("MovedLabel"));
+    FreshMoved->SetText(FText::FromString(TEXT("Stable")));
+    FreshLeft->AddChild(FreshMoved);
     FreshRight->AddChild(FreshTree->ConstructWidget<UTextBlock>(
         UTextBlock::StaticClass(), TEXT("StaticLabel")));
-    TestFalse(TEXT("reparent with text property change is rejected"),
+    StageMoved->SetText(FText::FromString(TEXT("CHANGED")));
+    StageMoved->SetRenderOpacity(0.45f);
+
+    TestTrue(TEXT("mixed move plus property changes allowed structurally"),
         ValidateStructuralPlan(MoveOld, MoveWithEdit, FreshTree, MoveStagedTree,
             MoveAdded, MovePanels, MoveCount, MoveDeleted, Error));
+    TestTrue(TEXT("mixed property preflight accepts Text and RenderOpacity"),
+        CopySurvivingPropertyChanges(MoveOld, MoveWithEdit,
+            FreshTree, MoveStagedTree, true, Error));
+    TestEqual(TEXT("dry-run does not mutate text"), FreshMoved->GetText().ToString(),
+        FString(TEXT("Stable")));
+
+    // A slot-only change on an unmoved widget must still be rejected.
+    FXmlNodeDesc MoveWithBadSlot;
+    TestTrue(TEXT("parse disallowed mixed slot edit"),
+        UXmlDslParser::ParseXmlString(
+            TEXT("<Horizontal Name=\"MoveRoot\"><Vertical Name=\"Left\"/>"
+                "<Overlay Name=\"Right\"><Text Name=\"StaticLabel\" Text=\"Static\" HAlign=\"Left\"/>"
+                "<Text Name=\"MovedLabel\" Text=\"CHANGED\" FontSize=\"14\""
+                " RenderOpacity=\"0.45\"/></Overlay>"
+                "</Horizontal>"),
+            MoveWithBadSlot, Error));
+    TestFalse(TEXT("mixed preflight rejects slot edit on unmoved widget"),
+        CopySurvivingPropertyChanges(MoveOld, MoveWithBadSlot,
+            FreshTree, MoveStagedTree, true, Error));
+
+    TestTrue(TEXT("apply mixed reparent first"),
+        ApplyStructuralPlan(MoveOld, MoveWithEdit, FreshTree, MoveStagedTree, Error));
+    TestTrue(TEXT("then copy allowlisted properties onto original UObject"),
+        CopySurvivingPropertyChanges(MoveOld, MoveWithEdit,
+            FreshTree, MoveStagedTree, false, Error));
+    TestTrue(TEXT("mixed move preserved UObject"),
+        FreshRight->GetChildAt(1) == FreshMoved);
+    TestEqual(TEXT("moved leaf has updated text"), FreshMoved->GetText().ToString(),
+        FString(TEXT("CHANGED")));
+    TestTrue(TEXT("moved leaf has updated opacity"),
+        FMath::IsNearlyEqual(FreshMoved->GetRenderOpacity(), 0.45f));
+    TestTrue(TEXT("mixed move result matches staged tree"),
+        CompareGeneratedStructure(FreshTree->RootWidget,
+            MoveStagedTree->RootWidget, Error));
+
+    // One atomic structural Apply can delete one leaf, insert another and
+    // change Text on the surviving widget without replacing that UObject.
+    FXmlNodeDesc MixedOld, MixedNew;
+    TestTrue(TEXT("parse mixed insert/delete/property source"),
+        UXmlDslParser::ParseXmlString(
+            TEXT("<Vertical Name=\"MixedRoot\"><Text Name=\"Keep\" Text=\"Before\"/>"
+                "<Text Name=\"Remove\" Text=\"Gone\"/></Vertical>"),
+            MixedOld, Error));
+    TestTrue(TEXT("parse mixed insert/delete/property target"),
+        UXmlDslParser::ParseXmlString(
+            TEXT("<Vertical Name=\"MixedRoot\"><Image Name=\"NewIcon\"/>"
+                "<Text Name=\"Keep\" Text=\"After\"/></Vertical>"),
+            MixedNew, Error));
+    UWidgetTree* MixedTree = NewObject<UWidgetTree>();
+    UVerticalBox* MixedRoot = MixedTree->ConstructWidget<UVerticalBox>(
+        UVerticalBox::StaticClass(), TEXT("MixedRoot"));
+    MixedTree->RootWidget = MixedRoot;
+    UTextBlock* MixedKeep = MixedTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("Keep"));
+    UTextBlock* MixedRemove = MixedTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("Remove"));
+    MixedKeep->SetText(FText::FromString(TEXT("Before")));
+    MixedRoot->AddChild(MixedKeep);
+    MixedRoot->AddChild(MixedRemove);
+    UWidgetTree* MixedStagedTree = NewObject<UWidgetTree>();
+    UVerticalBox* MixedStageRoot = MixedStagedTree->ConstructWidget<UVerticalBox>(
+        UVerticalBox::StaticClass(), TEXT("MixedRoot"));
+    MixedStagedTree->RootWidget = MixedStageRoot;
+    UImage* MixedStageIcon = MixedStagedTree->ConstructWidget<UImage>(
+        UImage::StaticClass(), TEXT("NewIcon"));
+    UTextBlock* MixedStageKeep = MixedStagedTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("Keep"));
+    MixedStageKeep->SetText(FText::FromString(TEXT("After")));
+    MixedStageRoot->AddChild(MixedStageIcon);
+    MixedStageRoot->AddChild(MixedStageKeep);
+    int32 MixedAdded = 0, MixedPanels = 0, MixedMoved = 0, MixedDeleted = 0;
+    TestTrue(TEXT("combined insert/delete/property structural preflight"),
+        ValidateStructuralPlan(MixedOld, MixedNew, MixedTree,
+            MixedStagedTree, MixedAdded, MixedPanels, MixedMoved, MixedDeleted, Error));
+    TestEqual(TEXT("mixed operation inserts one"), MixedAdded, 1);
+    TestEqual(TEXT("mixed operation deletes one"), MixedDeleted, 1);
+    TestTrue(TEXT("combined insert/delete/property allowlisted preflight"),
+        CopySurvivingPropertyChanges(MixedOld, MixedNew,
+            MixedTree, MixedStagedTree, true, Error));
+    TestTrue(TEXT("combined structural mutation"),
+        ApplyStructuralPlan(MixedOld, MixedNew, MixedTree, MixedStagedTree, Error));
+    TestTrue(TEXT("combined property mutation"),
+        CopySurvivingPropertyChanges(MixedOld, MixedNew,
+            MixedTree, MixedStagedTree, false, Error));
+    TestTrue(TEXT("surviving Text identity is unchanged"),
+        MixedRoot->GetChildAt(1) == MixedKeep);
+    TestEqual(TEXT("surviving Text value is updated"),
+        MixedKeep->GetText().ToString(), FString(TEXT("After")));
+    TestTrue(TEXT("removed widget evacuated to transient"),
+        !MixedRemove->IsIn(MixedTree));
+    TestTrue(TEXT("inserted image is present"),
+        MixedRoot->GetChildAt(0)->GetFName() == FName(TEXT("NewIcon")));
+    TestTrue(TEXT("mixed hierarchy matches staged tree"),
+        CompareGeneratedStructure(MixedTree->RootWidget,
+            MixedStagedTree->RootWidget, Error));
 
     FXmlNodeDesc DeletedStructure;
     TestTrue(TEXT("parse deletion candidate"),
