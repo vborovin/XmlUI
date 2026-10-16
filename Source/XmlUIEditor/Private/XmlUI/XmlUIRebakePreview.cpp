@@ -768,7 +768,7 @@ namespace
     }
 
 
-    // A deletion may only remove a leaf with no known dependencies.
+    // Deleting a subtree checks this for every widget, not only its root.
     // This check intentionally fails closed on dynamic GetWidgetFromName calls.
     // External native code and runtime-created name-based lookups cannot be
     // proven safe from within a single UWidgetBlueprint.
@@ -896,6 +896,32 @@ namespace
         return true;
     }
 
+
+    bool ValidateDeletionDependencies(const UWidgetBlueprint* BP,
+        const FXmlNodeDesc& Before, const FXmlNodeDesc& After,
+        const UWidgetTree* Tree, TSet<FName>& OutDeleted, FString& Error)
+    {
+        OutDeleted.Empty();
+        TMap<FString, FStructuralNode> Old, New;
+        IndexStructuralNodes(Before, FString(), Old);
+        IndexStructuralNodes(After, FString(), New);
+        for (const TPair<FString, FStructuralNode>& Pair : Old)
+        {
+            if (New.Contains(Pair.Key))
+            {
+                continue;
+            }
+            const FName Name(*Pair.Key);
+            const UWidget* Widget = Tree ? Tree->FindWidget(Name) : nullptr;
+            if (!CheckWidgetDeletionDependencies(BP, Widget, Error))
+            {
+                return false;
+            }
+            OutDeleted.Add(Name);
+        }
+        return true;
+    }
+
     bool ValidateStructuralPlan(const FXmlNodeDesc& Before, const FXmlNodeDesc& After,
         const UWidgetTree* ExistingTree, const UWidgetTree* CandidateTree,
         int32& Added, int32& Reordered, int32& Moved, int32& Deleted, FString& Error)
@@ -921,21 +947,37 @@ namespace
             const FStructuralNode* Candidate = New.Find(Pair.Key);
             if (!Candidate)
             {
-                const FXmlNodeDesc& Removed = *Pair.Value.Node;
-                UWidget* Widget = ExistingTree->FindWidget(FName(*Pair.Key));
-                UPanelWidget* Parent = Cast<UPanelWidget>(
+                // Every removed node must belong to a completely deleted
+                // subtree. No former descendant may survive elsewhere:
+                // moving nodes out while removing their ancestor is a
+                // separate, currently unsupported mixed operation.
+                const bool bParentRemoved =
+                    Old.Contains(Pair.Value.ParentName)
+                    && !New.Contains(Pair.Value.ParentName);
+                const UWidget* Widget =
+                    ExistingTree->FindWidget(FName(*Pair.Key));
+                const UPanelWidget* Parent = Cast<UPanelWidget>(
                     ExistingTree->FindWidget(FName(*Pair.Value.ParentName)));
-                if (!IsSupportedMovedLeaf(Removed) || !Parent
-                    || !IsSupportedStructuralParent(Parent)
-                    || !Widget || Widget->GetParent() != Parent)
+                if (!Widget || !Parent || Widget->GetParent() != Parent
+                    || (!bParentRemoved && !IsSupportedStructuralParent(Parent)))
                 {
                     Error = FString::Printf(
-                        TEXT("deletion of '%s' requires a leaf Text/Image/Spacer in an existing supported panel"),
+                        TEXT("deleting '%s' requires an existing intact subtree whose root belongs to a supported panel"),
                         *Pair.Key);
                     return false;
                 }
                 ++Deleted;
                 continue;
+            }
+            // Reject partial subtree removal even if the remaining node has
+            // been moved into a different panel in the candidate XML.
+            if (Old.Contains(Pair.Value.ParentName)
+                && !New.Contains(Pair.Value.ParentName))
+            {
+                Error = FString::Printf(
+                    TEXT("widget '%s' survives inside a removed subtree; move it separately before deleting the subtree"),
+                    *Pair.Key);
+                return false;
             }
             const bool bMoved = Candidate->ParentName != Pair.Value.ParentName;
             if (Candidate->Node->Tag != Pair.Value.Node->Tag
@@ -1037,7 +1079,7 @@ namespace
             const FStructuralNode* DesiredEntry = New.Find(Pair.Key);
             if (!DesiredEntry)
             {
-                continue; // deleted leaf is not a panel
+                continue; // deleted node and all descendants are excluded
             }
             const FStructuralNode& Desired = *DesiredEntry;
             const FXmlNodeDesc& OldNode = *Pair.Value.Node;
@@ -1088,57 +1130,96 @@ namespace
             ExistingByName.Add(Widget->GetFName(), Widget);
         }
 
-        // Remove explicitly approved leaf widgets from the hierarchy before
-        // attaching/reordering survivors. They are no longer serialized via
-        // the WidgetTree; clear their GUID in Apply only after mutation succeeds.
+        // A subtree is removed at its highest deleted root. Cache its full
+        // old hierarchy first: UWidgetTree::RemoveWidget detaches the root
+        // but does not re-Outer any descendant. UE5.8's WidgetBlueprint
+        // compiler enumerates ALL UWidgets owned by the source tree.
+        // Every deleted descendant therefore needs its own re-Outer to the
+        // transient package before its GUID is removed.
         for (const TPair<FString, FStructuralNode>& Pair : Old)
         {
-            if (New.Contains(Pair.Key))
+            if (New.Contains(Pair.Key)
+                || !New.Contains(Pair.Value.ParentName))
             {
-                continue;
+                continue; // survivor or descendant of another deleted root
             }
-            UWidget* Widget = ExistingByName.FindRef(FName(*Pair.Key));
-            if (!Widget)
+            UWidget* Root = ExistingByName.FindRef(FName(*Pair.Key));
+            if (!Root)
             {
-                Error = FString::Printf(TEXT("deleted widget '%s' is missing"), *Pair.Key);
+                Error = FString::Printf(TEXT("deleted subtree root '%s' is missing"), *Pair.Key);
                 return false;
             }
-            Widget->Modify();
-            if (!ExistingTree->RemoveWidget(Widget)
+            TArray<UWidget*> Descendants;
+            TArray<UWidget*> Pending{ Root };
+            while (!Pending.IsEmpty())
+            {
+                UWidget* Current = Pending.Pop(EAllowShrinking::No);
+                if (!Current)
+                {
+                    Error = FString::Printf(TEXT("deleted subtree '%s' has an invalid child"), *Pair.Key);
+                    return false;
+                }
+                if (Descendants.Contains(Current))
+                {
+                    Error = FString::Printf(
+                        TEXT("subtree '%s' contains duplicate widget '%s'"),
+                        *Pair.Key, *Current->GetName());
+                    return false;
+                }
+                Descendants.Add(Current);
+                if (UPanelWidget* Panel = Cast<UPanelWidget>(Current))
+                {
+                    for (int32 I = 0; I < Panel->GetChildrenCount(); ++I)
+                    {
+                        Pending.Add(Panel->GetChildAt(I));
+                    }
+                }
+            }
+
+            // Require a one-to-one match between the actual UMG hierarchy
+            // and the previously exported XML. Refuse to erase hidden or
+            // unexpected widgets that the dependency scan did not visit.
+            for (UWidget* Current : Descendants)
+            {
+                const FString Name = Current->GetName();
+                const FStructuralNode* Source = Old.Find(Name);
+                if (!Source || New.Contains(Name))
+                {
+                    Error = FString::Printf(
+                        TEXT("subtree '%s' has an untracked or surviving widget '%s'"),
+                        *Pair.Key, *Name);
+                    return false;
+                }
+            }
+            Root->Modify();
+            if (!ExistingTree->RemoveWidget(Root)
                 || ExistingTree->FindWidget(FName(*Pair.Key)))
             {
-                Error = FString::Printf(TEXT("could not remove widget '%s' from WidgetTree"),
-                    *Pair.Key);
+                Error = FString::Printf(
+                    TEXT("could not remove subtree root '%s' from WidgetTree"), *Pair.Key);
                 return false;
             }
 
-            // WidgetTree::RemoveWidget only detaches the hierarchy entry;
-            // it does NOT necessarily change the removed widget's UObject
-            // Outer. UBaseWidgetBlueprint::ForEachSourceWidgetImpl in UE5.8
-            // enumerates UWidgets owned by the source WidgetTree, including
-            // these detached objects. Removing the variable GUID while the
-            // detached UWidget still has Outer=ExistingTree makes the compiler
-            // report "widget was added but did not get a GUID".
-            //
-            // Move the detached UObject out of the source package before
-            // its GUID is pruned. The persistent backup and verified package
-            // reload remain authoritative on all failure paths.
             UPackage* TransientPackage = GetTransientPackage();
-            const FString TransientName = MakeUniqueObjectName(
-                TransientPackage, Widget->GetClass(),
-                FName(TEXT("XmlUIDeletedWidget"))).ToString();
-            if (!Widget->Rename(*TransientName, TransientPackage,
-                REN_DontCreateRedirectors | REN_NonTransactional | REN_DoNotDirty)
-                || Widget->IsIn(ExistingTree))
+            for (UWidget* Current : Descendants)
             {
-                Error = FString::Printf(
-                    TEXT("could not evacuate deleted widget '%s' from source WidgetTree ownership"),
-                    *Pair.Key);
-                return false;
+                const FName OriginalName = Current->GetFName();
+                const FString TransientName = MakeUniqueObjectName(
+                    TransientPackage, Current->GetClass(),
+                    FName(TEXT("XmlUIDeletedWidget"))).ToString();
+                if (!Current->Rename(*TransientName, TransientPackage,
+                    REN_DontCreateRedirectors | REN_NonTransactional | REN_DoNotDirty)
+                    || Current->IsIn(ExistingTree))
+                {
+                    Error = FString::Printf(
+                        TEXT("could not evacuate deleted widget '%s' from source WidgetTree ownership"),
+                        *OriginalName.ToString());
+                    return false;
+                }
+                Current->ClearFlags(RF_Public | RF_Standalone);
+                Current->SetFlags(RF_Transient);
+                ExistingByName.Remove(OriginalName);
             }
-            Widget->ClearFlags(RF_Public | RF_Standalone);
-            Widget->SetFlags(RF_Transient);
-            ExistingByName.Remove(FName(*Pair.Key));
         }
 
         // Detach every moved leaf before processing any destination panel.
@@ -1586,29 +1667,17 @@ namespace
             }
             if (Deleted > 0)
             {
-                TMap<FString, FStructuralNode> PreviousNodes, TargetNodes;
-                IndexStructuralNodes(Before, FString(), PreviousNodes);
-                IndexStructuralNodes(Staged, FString(), TargetNodes);
-                for (const TPair<FString, FStructuralNode>& Pair : PreviousNodes)
+                if (!ValidateDeletionDependencies(Original, Before, Staged,
+                    Original->WidgetTree, DeletedNames, Error))
                 {
-                    if (TargetNodes.Contains(Pair.Key))
-                    {
-                        continue;
-                    }
-                    const FName WidgetName(*Pair.Key);
-                    UWidget* Widget = Original->WidgetTree->FindWidget(WidgetName);
-                    if (!CheckWidgetDeletionDependencies(Original, Widget, Error))
-                    {
-                        UE_LOG(LogTemp, Error,
-                            TEXT("XmlUI Re-bake Apply: deletion rejected: %s"), *Error);
-                        return false;
-                    }
-                    DeletedNames.Add(WidgetName);
+                    UE_LOG(LogTemp, Error,
+                        TEXT("XmlUI Re-bake Apply: subtree deletion rejected: %s"), *Error);
+                    return false;
                 }
                 if (DeletedNames.Num() != Deleted)
                 {
                     UE_LOG(LogTemp, Error,
-                        TEXT("XmlUI Re-bake Apply: deletion count mismatch in preflight"));
+                        TEXT("XmlUI Re-bake Apply: subtree deletion count mismatch in preflight"));
                     return false;
                 }
             }
@@ -2187,32 +2256,110 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("resulting tree matches staged hierarchy"),
         CompareGeneratedStructure(DeleteTree->RootWidget, DeleteStageTree->RootWidget, Error));
 
-    // Deleting an entire subtree remains disallowed.
+    // A complete nested panel plus all its descendants can be deleted
+    // only when no descendant is referenced and the resulting hierarchy is
+    // exactly the staged candidate. The surviving sibling retains identity.
     FXmlNodeDesc ParentDeleteOld, ParentDeleteNew;
     TestTrue(TEXT("parse subtree deletion source"),
         UXmlDslParser::ParseXmlString(
             TEXT("<Vertical Name=\"Root\"><Vertical Name=\"Nested\">"
-                "<Text Name=\"NestedText\" Text=\"Keep\"/></Vertical></Vertical>"),
+                "<Overlay Name=\"Inner\"><Text Name=\"NestedText\" Text=\"Delete\"/>"
+                "</Overlay></Vertical>"
+                "<Text Name=\"KeepSibling\" Text=\"Keep\"/></Vertical>"),
             ParentDeleteOld, Error));
     TestTrue(TEXT("parse subtree deletion target"),
         UXmlDslParser::ParseXmlString(
-            TEXT("<Vertical Name=\"Root\"/>"), ParentDeleteNew, Error));
+            TEXT("<Vertical Name=\"Root\"><Text Name=\"KeepSibling\" Text=\"Keep\"/></Vertical>"),
+            ParentDeleteNew, Error));
+
     UWidgetTree* ParentTree = NewObject<UWidgetTree>();
     UVerticalBox* ParentRoot = ParentTree->ConstructWidget<UVerticalBox>(
         UVerticalBox::StaticClass(), TEXT("Root"));
     ParentTree->RootWidget = ParentRoot;
     UVerticalBox* Nested = ParentTree->ConstructWidget<UVerticalBox>(
         UVerticalBox::StaticClass(), TEXT("Nested"));
+    UOverlay* Inner = ParentTree->ConstructWidget<UOverlay>(
+        UOverlay::StaticClass(), TEXT("Inner"));
+    UTextBlock* NestedText = ParentTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("NestedText"));
+    UTextBlock* KeepSibling = ParentTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("KeepSibling"));
     ParentRoot->AddChild(Nested);
-    Nested->AddChild(ParentTree->ConstructWidget<UTextBlock>(
-        UTextBlock::StaticClass(), TEXT("NestedText")));
+    Nested->AddChild(Inner);
+    Inner->AddChild(NestedText);
+    ParentRoot->AddChild(KeepSibling);
+
     UWidgetTree* ParentStageTree = NewObject<UWidgetTree>();
-    ParentStageTree->RootWidget = ParentStageTree->ConstructWidget<UVerticalBox>(
+    UVerticalBox* StageParentRoot = ParentStageTree->ConstructWidget<UVerticalBox>(
         UVerticalBox::StaticClass(), TEXT("Root"));
-    TestFalse(TEXT("deleting a nonleaf subtree is refused"),
+    ParentStageTree->RootWidget = StageParentRoot;
+    StageParentRoot->AddChild(ParentStageTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("KeepSibling")));
+
+    TestTrue(TEXT("complete subtree deletion passes structural validation"),
         ValidateStructuralPlan(ParentDeleteOld, ParentDeleteNew,
             ParentTree, ParentStageTree,
             DeleteAdded, DeletePanels, DeleteMoved, DeleteCount, Error));
+    TestEqual(TEXT("three widgets in the subtree to delete"), DeleteCount, 3);
+    TestEqual(TEXT("one affected surviving parent"), DeletePanels, 1);
+
+    // A dependency on ANY descendant rejects the entire operation.
+    UWidgetAnimation* NestedAnimation = NewObject<UWidgetAnimation>(TestWidgetBP);
+    FWidgetAnimationBinding NestedBinding;
+    NestedBinding.WidgetName = FName(TEXT("NestedText"));
+    NestedAnimation->AnimationBindings.Add(NestedBinding);
+    TestWidgetBP->Animations.Add(NestedAnimation);
+    TSet<FName> SubtreeDeletedNames;
+    TestFalse(TEXT("animation reference on descendant blocks subtree deletion"),
+        ValidateDeletionDependencies(TestWidgetBP, ParentDeleteOld,
+            ParentDeleteNew, ParentTree, SubtreeDeletedNames, Error));
+    TestTrue(TEXT("subtree deletion error identifies referenced descendant"),
+        Error.Contains(TEXT("NestedText")));
+    TestWidgetBP->Animations.Empty();
+    TestTrue(TEXT("unreferenced subtree dependency check passes"),
+        ValidateDeletionDependencies(TestWidgetBP, ParentDeleteOld,
+            ParentDeleteNew, ParentTree, SubtreeDeletedNames, Error));
+    TestEqual(TEXT("all subtree descendants checked for dependencies"),
+        SubtreeDeletedNames.Num(), 3);
+    TestTrue(TEXT("deleted root is tracked"), SubtreeDeletedNames.Contains(FName(TEXT("Nested"))));
+    TestTrue(TEXT("nested container is tracked"), SubtreeDeletedNames.Contains(FName(TEXT("Inner"))));
+    TestTrue(TEXT("deleted child is tracked"), SubtreeDeletedNames.Contains(FName(TEXT("NestedText"))));
+
+    // No partial subtree deletion: a descendant cannot be moved out while
+    // the parent is deleted in the same operation.
+    FXmlNodeDesc EscapedChildXml;
+    TestTrue(TEXT("parse invalid partial subtree deletion candidate"),
+        UXmlDslParser::ParseXmlString(
+            TEXT("<Vertical Name=\"Root\"><Text Name=\"NestedText\" Text=\"Delete\"/>"
+                "<Text Name=\"KeepSibling\" Text=\"Keep\"/></Vertical>"),
+            EscapedChildXml, Error));
+    TestFalse(TEXT("surviving descendant blocks subtree removal"),
+        ValidateStructuralPlan(ParentDeleteOld, EscapedChildXml,
+            ParentTree, ParentStageTree,
+            DeleteAdded, DeletePanels, DeleteMoved, DeleteCount, Error));
+    TestTrue(TEXT("partial deletion error identifies surviving descendant"),
+        Error.Contains(TEXT("NestedText")));
+
+    TestTrue(TEXT("apply complete subtree removal"),
+        ApplyStructuralPlan(ParentDeleteOld, ParentDeleteNew,
+            ParentTree, ParentStageTree, Error));
+    TestEqual(TEXT("only surviving sibling remains"), ParentRoot->GetChildrenCount(), 1);
+    TestTrue(TEXT("original sibling UObject survives"),
+        ParentRoot->GetChildAt(0) == KeepSibling);
+    TestTrue(TEXT("deleted root not discoverable"),
+        ParentTree->FindWidget(FName(TEXT("Nested"))) == nullptr);
+    TestTrue(TEXT("deleted descendant not discoverable"),
+        ParentTree->FindWidget(FName(TEXT("NestedText"))) == nullptr);
+    TestTrue(TEXT("nested panel not discoverable"),
+        ParentTree->FindWidget(FName(TEXT("Inner"))) == nullptr);
+    TestTrue(TEXT("root no longer owned by source WidgetTree"),
+        !Nested->IsIn(ParentTree) && Nested->GetOuter() == GetTransientPackage());
+    TestTrue(TEXT("inner panel no longer owned by source WidgetTree"),
+        !Inner->IsIn(ParentTree) && Inner->GetOuter() == GetTransientPackage());
+    TestTrue(TEXT("descendant no longer owned by source WidgetTree"),
+        !NestedText->IsIn(ParentTree) && NestedText->GetOuter() == GetTransientPackage());
+    TestTrue(TEXT("compiled hierarchy can match staged subtree deletion"),
+        CompareGeneratedStructure(ParentTree->RootWidget, ParentStageTree->RootWidget, Error));
     return true;
 }
 #endif
