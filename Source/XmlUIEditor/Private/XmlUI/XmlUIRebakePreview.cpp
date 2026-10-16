@@ -15,6 +15,8 @@
 #include "Blueprint/WidgetBlueprintGeneratedClass.h"
 #include "Components/TextBlock.h"
 #include "Components/PanelWidget.h"
+#include "Components/ContentWidget.h"
+#include "Components/Button.h"
 #include "Components/PanelSlot.h"
 #include "Components/HorizontalBox.h"
 #include "Components/VerticalBox.h"
@@ -768,6 +770,36 @@ namespace
     }
 
 
+    // Content widgets (Button, Border, SizeBox, etc.) have a single
+    // content slot. Structural Re-bake still cannot insert/reorder/reparent
+    // children in these panels. The only supported change is deleting their
+    // one existing child and its complete subtree, leaving content empty.
+    bool IsSafeContentOnlyRemoval(const FString& ParentName,
+        const TMap<FString, FStructuralNode>& Old,
+        const TMap<FString, FStructuralNode>& New,
+        const UWidgetTree* ExistingTree, const UWidgetTree* CandidateTree)
+    {
+        const FStructuralNode* Source = Old.Find(ParentName);
+        const FStructuralNode* Target = New.Find(ParentName);
+        if (!Source || !Target || Source->Node->Children.Num() != 1
+            || !Target->Node->Children.IsEmpty()
+            || New.Contains(Source->Node->Children[0].Name)
+            || !ExistingTree || !CandidateTree)
+        {
+            return false;
+        }
+        const UContentWidget* Parent = Cast<UContentWidget>(
+            ExistingTree->FindWidget(FName(*ParentName)));
+        const UContentWidget* Staged = Cast<UContentWidget>(
+            CandidateTree->FindWidget(FName(*ParentName)));
+        return Parent && Staged
+            && Parent->GetClass() == Staged->GetClass()
+            && Parent->GetChildrenCount() == 1
+            && Staged->GetChildrenCount() == 0
+            && Parent->GetChildAt(0)
+            && Parent->GetChildAt(0)->GetName() == Source->Node->Children[0].Name;
+    }
+
     // Deleting a subtree checks this for every widget, not only its root.
     // This check intentionally fails closed on dynamic GetWidgetFromName calls.
     // External native code and runtime-created name-based lookups cannot be
@@ -958,12 +990,17 @@ namespace
                     ExistingTree->FindWidget(FName(*Pair.Key));
                 const UPanelWidget* Parent = Cast<UPanelWidget>(
                     ExistingTree->FindWidget(FName(*Pair.Value.ParentName)));
+                const bool bValidDeletionParent = bParentRemoved
+                    || IsSupportedStructuralParent(Parent)
+                    || IsSafeContentOnlyRemoval(Pair.Value.ParentName,
+                        Old, New, ExistingTree, CandidateTree);
                 if (!Widget || !Parent || Widget->GetParent() != Parent
-                    || (!bParentRemoved && !IsSupportedStructuralParent(Parent)))
+                    || !bValidDeletionParent)
                 {
                     Error = FString::Printf(
-                        TEXT("deleting '%s' requires an existing intact subtree whose root belongs to a supported panel"),
-                        *Pair.Key);
+                        TEXT("deleting '%s' from parent '%s' (%s) requires an intact subtree in Vertical/Horizontal/Overlay or the complete removal of a ContentWidget's sole child"),
+                        *Pair.Key, *Pair.Value.ParentName,
+                        Parent ? *Parent->GetClass()->GetName() : TEXT("missing"));
                     return false;
                 }
                 ++Deleted;
@@ -1095,9 +1132,13 @@ namespace
             }
             UPanelWidget* Panel = Cast<UPanelWidget>(
                 ExistingTree->FindWidget(FName(*Pair.Key)));
-            if (!Panel || !IsSupportedStructuralParent(Panel))
+            if (!Panel || (!IsSupportedStructuralParent(Panel)
+                && !IsSafeContentOnlyRemoval(Pair.Key,
+                    Old, New, ExistingTree, CandidateTree)))
             {
-                Error = FString::Printf(TEXT("cannot change children of unsupported panel '%s'"), *Pair.Key);
+                Error = FString::Printf(
+                    TEXT("cannot change children of unsupported panel '%s' (%s); ContentWidget supports only removal of its sole child"),
+                    *Pair.Key, Panel ? *Panel->GetClass()->GetName() : TEXT("missing"));
                 return false;
             }
             if (Panel->GetChildrenCount() != OldNode.Children.Num())
@@ -2360,6 +2401,85 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
         !NestedText->IsIn(ParentTree) && NestedText->GetOuter() == GetTransientPackage());
     TestTrue(TEXT("compiled hierarchy can match staged subtree deletion"),
         CompareGeneratedStructure(ParentTree->RootWidget, ParentStageTree->RootWidget, Error));
+
+    // The original SMA regression: VerticalBox_0 is the sole content of a
+    // Button named EntryBtn. Removing this entire subtree is safe, but
+    // arbitrary replacement/insertions in UContentWidget remain disallowed.
+    const FString ButtonOldXml = TEXT(
+        "<Vertical Name=\"ButtonRoot\"><Button Name=\"EntryBtn\">"
+            "<Vertical Name=\"VerticalBox_0\">"
+                "<Text Name=\"ButtonNestedText\" Text=\"Nested\"/>"
+            "</Vertical>"
+        "</Button></Vertical>");
+    const FString ButtonDeletedXml = TEXT(
+        "<Vertical Name=\"ButtonRoot\"><Button Name=\"EntryBtn\"/></Vertical>");
+    const FString ButtonReplacedXml = TEXT(
+        "<Vertical Name=\"ButtonRoot\"><Button Name=\"EntryBtn\">"
+            "<Text Name=\"ReplacementText\" Text=\"Replacement\"/>"
+        "</Button></Vertical>");
+    FXmlNodeDesc ButtonOld, ButtonDeleted, ButtonReplaced;
+    TestTrue(TEXT("parse original content-widget subtree"),
+        UXmlDslParser::ParseXmlString(ButtonOldXml, ButtonOld, Error));
+    TestTrue(TEXT("parse empty-button candidate"),
+        UXmlDslParser::ParseXmlString(ButtonDeletedXml, ButtonDeleted, Error));
+    TestTrue(TEXT("parse unsupported content replacement"),
+        UXmlDslParser::ParseXmlString(ButtonReplacedXml, ButtonReplaced, Error));
+
+    UWidgetTree* ButtonTree = NewObject<UWidgetTree>();
+    UVerticalBox* ButtonRoot = ButtonTree->ConstructWidget<UVerticalBox>(
+        UVerticalBox::StaticClass(), TEXT("ButtonRoot"));
+    ButtonTree->RootWidget = ButtonRoot;
+    UButton* EntryBtn = ButtonTree->ConstructWidget<UButton>(
+        UButton::StaticClass(), TEXT("EntryBtn"));
+    UVerticalBox* ButtonContent = ButtonTree->ConstructWidget<UVerticalBox>(
+        UVerticalBox::StaticClass(), TEXT("VerticalBox_0"));
+    UTextBlock* ButtonNestedText = ButtonTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("ButtonNestedText"));
+    ButtonRoot->AddChild(EntryBtn);
+    EntryBtn->AddChild(ButtonContent);
+    ButtonContent->AddChild(ButtonNestedText);
+
+    UWidgetTree* EmptyButtonTree = NewObject<UWidgetTree>();
+    UVerticalBox* StagedButtonRoot = EmptyButtonTree->ConstructWidget<UVerticalBox>(
+        UVerticalBox::StaticClass(), TEXT("ButtonRoot"));
+    EmptyButtonTree->RootWidget = StagedButtonRoot;
+    UButton* StagedButton = EmptyButtonTree->ConstructWidget<UButton>(
+        UButton::StaticClass(), TEXT("EntryBtn"));
+    StagedButtonRoot->AddChild(StagedButton);
+
+    int32 ContentAdded = 0, ContentPanels = 0, ContentMoved = 0, ContentDeleted = 0;
+    TestTrue(TEXT("Button may delete its only child subtree"),
+        ValidateStructuralPlan(ButtonOld, ButtonDeleted, ButtonTree,
+            EmptyButtonTree, ContentAdded, ContentPanels, ContentMoved, ContentDeleted, Error));
+    TestEqual(TEXT("Button deletion removes two widgets"), ContentDeleted, 2);
+    TestEqual(TEXT("Button deletion changes one panel"), ContentPanels, 1);
+
+    UWidgetTree* ReplacedButtonTree = NewObject<UWidgetTree>();
+    UVerticalBox* ReplacedRoot = ReplacedButtonTree->ConstructWidget<UVerticalBox>(
+        UVerticalBox::StaticClass(), TEXT("ButtonRoot"));
+    ReplacedButtonTree->RootWidget = ReplacedRoot;
+    UButton* ReplacedBtn = ReplacedButtonTree->ConstructWidget<UButton>(
+        UButton::StaticClass(), TEXT("EntryBtn"));
+    ReplacedRoot->AddChild(ReplacedBtn);
+    ReplacedBtn->AddChild(ReplacedButtonTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("ReplacementText")));
+    TestFalse(TEXT("Button child replacement still rejected"),
+        ValidateStructuralPlan(ButtonOld, ButtonReplaced, ButtonTree,
+            ReplacedButtonTree, ContentAdded, ContentPanels, ContentMoved, ContentDeleted, Error));
+
+    TestTrue(TEXT("apply sole Button child subtree deletion"),
+        ApplyStructuralPlan(ButtonOld, ButtonDeleted, ButtonTree, EmptyButtonTree, Error));
+    TestEqual(TEXT("Button is empty after deletion"), EntryBtn->GetChildrenCount(), 0);
+    TestTrue(TEXT("original Button UObject survives"),
+        ButtonRoot->GetChildAt(0) == EntryBtn);
+    TestTrue(TEXT("Button nested panel evacuated from source"),
+        !ButtonContent->IsIn(ButtonTree)
+        && ButtonContent->GetOuter() == GetTransientPackage());
+    TestTrue(TEXT("Button nested child evacuated from source"),
+        !ButtonNestedText->IsIn(ButtonTree)
+        && ButtonNestedText->GetOuter() == GetTransientPackage());
+    TestTrue(TEXT("Button tree matches empty staged content"),
+        CompareGeneratedStructure(ButtonTree->RootWidget, EmptyButtonTree->RootWidget, Error));
     return true;
 }
 #endif

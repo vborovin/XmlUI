@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Typed value validation for ranges, colors, vectors/margins, alignments, booleans, ScaleBox enums, and brush resource-path syntax.
 
 ### Fixed
+- Structural subtree deletion now accepts removing the *sole child* of existing UContentWidget parents (Button, Border, SizeBox, etc.), provided the staged content is empty; adding, replacing or reordering content remains unsupported. Regression covers SMA's `EntryBtn → VerticalBox_0` scenario and rejects replacing Button content.
 - UE5.8 UMG compiler ensure on guarded leaf deletion: `UWidgetTree::RemoveWidget()` detached the widget from the hierarchy but kept its UObject under the source `WidgetTree`. Move the removed object into the transient package with a unique name before pruning `WidgetVariableNameToGuidMap`; reject if source ownership remains. Regression verifies that the detached object no longer belongs to the source tree.
 - Fix incomplete rollback at `TestFailAt=AfterMutation`: after verifying the restored .uasset bytes, clear the source package's dirty flag before `ReloadPackages`, restoring it if reload fails. No package dirty state is cleared when disk recovery is unverified.
 - Require a genuine structural diff for dev-only `TestFailAt` scenarios; no-op XML must not be used as evidence that Structural Re-bake rollback works.
