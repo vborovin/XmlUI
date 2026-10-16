@@ -19,6 +19,16 @@
 #include "Components/ContentWidget.h"
 #include "Components/Button.h"
 #include "Components/PanelSlot.h"
+#include "Components/VerticalBoxSlot.h"
+#include "Components/HorizontalBoxSlot.h"
+#include "Components/OverlaySlot.h"
+#include "Components/ScrollBoxSlot.h"
+#include "Components/WrapBoxSlot.h"
+#include "Components/UniformGridSlot.h"
+#include "Components/CanvasPanelSlot.h"
+#include "Components/BorderSlot.h"
+#include "Components/CanvasPanel.h"
+#include "Components/UniformGridPanel.h"
 #include "Components/HorizontalBox.h"
 #include "Components/VerticalBox.h"
 #include "Components/Overlay.h"
@@ -428,6 +438,234 @@ namespace
         return Key == TEXT("Visibility") || Key == TEXT("RenderOpacity");
     }
 
+
+    bool IsExportedSlotAttribute(const FString& Key)
+    {
+        return Key == TEXT("Padding") || Key == TEXT("HAlign")
+            || Key == TEXT("VAlign") || Key == TEXT("SizeParam")
+            || Key == TEXT("Row") || Key == TEXT("Column")
+            || Key == TEXT("Position") || Key == TEXT("Size")
+            || Key == TEXT("Anchors") || Key == TEXT("Alignment")
+            || Key == TEXT("ZOrder") || Key == TEXT("AutoSize");
+    }
+
+    enum class ESlotUpdateMode : uint8
+    {
+        Preflight,
+        Apply,
+        Verify
+    };
+
+    // All three modes inspect the actual UPanelSlot class. "Verify" reads
+    // compiled archetypes without changing either source or destination.
+    // "Apply" calls UMG setters on the existing slot UObject, never replaces
+    // it or overwrites unexported members (e.g. Fill's SizeValue).
+    template <typename TSlot>
+    bool ProcessPaddingAlignment(const FString& Key, UPanelSlot* Destination,
+        const UPanelSlot* Staged, ESlotUpdateMode Mode,
+        bool& bHandled, bool& bMatches)
+    {
+        TSlot* Target = Cast<TSlot>(Destination);
+        const TSlot* Source = Cast<TSlot>(Staged);
+        if (!Target || !Source)
+        {
+            return false;
+        }
+        if (Key == TEXT("Padding"))
+        {
+            bHandled = true;
+            bMatches = Target->GetPadding() == Source->GetPadding();
+            if (Mode == ESlotUpdateMode::Apply)
+            {
+                Target->SetPadding(Source->GetPadding());
+            }
+        }
+        else if (Key == TEXT("HAlign"))
+        {
+            bHandled = true;
+            bMatches = Target->GetHorizontalAlignment() == Source->GetHorizontalAlignment();
+            if (Mode == ESlotUpdateMode::Apply)
+            {
+                Target->SetHorizontalAlignment(Source->GetHorizontalAlignment());
+            }
+        }
+        else if (Key == TEXT("VAlign"))
+        {
+            bHandled = true;
+            bMatches = Target->GetVerticalAlignment() == Source->GetVerticalAlignment();
+            if (Mode == ESlotUpdateMode::Apply)
+            {
+                Target->SetVerticalAlignment(Source->GetVerticalAlignment());
+            }
+        }
+        return true;
+    }
+
+    template <typename TSlot>
+    void ProcessBoxSizeRule(const FString& Key, UPanelSlot* Destination,
+        const UPanelSlot* Staged, ESlotUpdateMode Mode,
+        bool& bHandled, bool& bMatches)
+    {
+        TSlot* Target = Cast<TSlot>(Destination);
+        const TSlot* Source = Cast<TSlot>(Staged);
+        if (Target && Source && Key == TEXT("SizeParam"))
+        {
+            bHandled = true;
+            bMatches = Target->GetSize().SizeRule == Source->GetSize().SizeRule;
+            if (Mode == ESlotUpdateMode::Apply)
+            {
+                FSlateChildSize Size = Target->GetSize();
+                Size.SizeRule = Source->GetSize().SizeRule;
+                Target->SetSize(Size);
+            }
+        }
+    }
+
+    bool ProcessSlotChange(const FString& WidgetName, const FString& Key,
+        UPanelSlot* Destination, const UPanelSlot* Staged,
+        ESlotUpdateMode Mode, FString& Error)
+    {
+        if (!Destination || !Staged
+            || Destination->GetClass() != Staged->GetClass())
+        {
+            Error = FString::Printf(
+                TEXT("%s.%s: source/staged slot missing or UClass mismatch"),
+                *WidgetName, *Key);
+            return false;
+        }
+        bool bHandled = false;
+        bool bMatches = false;
+        if (ProcessPaddingAlignment<UVerticalBoxSlot>(Key, Destination, Staged,
+                Mode, bHandled, bMatches))
+        {
+            ProcessBoxSizeRule<UVerticalBoxSlot>(Key, Destination, Staged,
+                Mode, bHandled, bMatches);
+        }
+        else if (ProcessPaddingAlignment<UHorizontalBoxSlot>(Key, Destination, Staged,
+                Mode, bHandled, bMatches))
+        {
+            ProcessBoxSizeRule<UHorizontalBoxSlot>(Key, Destination, Staged,
+                Mode, bHandled, bMatches);
+        }
+        else if (ProcessPaddingAlignment<UScrollBoxSlot>(Key, Destination, Staged,
+                Mode, bHandled, bMatches))
+        {
+            ProcessBoxSizeRule<UScrollBoxSlot>(Key, Destination, Staged,
+                Mode, bHandled, bMatches);
+        }
+        else if (ProcessPaddingAlignment<UOverlaySlot>(Key, Destination, Staged,
+                Mode, bHandled, bMatches))
+        {
+        }
+        else if (ProcessPaddingAlignment<UWrapBoxSlot>(Key, Destination, Staged,
+                Mode, bHandled, bMatches))
+        {
+        }
+        else if (UUniformGridSlot* Target = Cast<UUniformGridSlot>(Destination))
+        {
+            const UUniformGridSlot* Source = CastChecked<UUniformGridSlot>(Staged);
+            if (Key == TEXT("HAlign"))
+            {
+                bHandled = true;
+                bMatches = Target->GetHorizontalAlignment() == Source->GetHorizontalAlignment();
+                if (Mode == ESlotUpdateMode::Apply)
+                    Target->SetHorizontalAlignment(Source->GetHorizontalAlignment());
+            }
+            else if (Key == TEXT("VAlign"))
+            {
+                bHandled = true;
+                bMatches = Target->GetVerticalAlignment() == Source->GetVerticalAlignment();
+                if (Mode == ESlotUpdateMode::Apply)
+                    Target->SetVerticalAlignment(Source->GetVerticalAlignment());
+            }
+            else if (Key == TEXT("Row"))
+            {
+                bHandled = true;
+                bMatches = Target->GetRow() == Source->GetRow();
+                if (Mode == ESlotUpdateMode::Apply) Target->SetRow(Source->GetRow());
+            }
+            else if (Key == TEXT("Column"))
+            {
+                bHandled = true;
+                bMatches = Target->GetColumn() == Source->GetColumn();
+                if (Mode == ESlotUpdateMode::Apply) Target->SetColumn(Source->GetColumn());
+            }
+        }
+        else if (UCanvasPanelSlot* Target = Cast<UCanvasPanelSlot>(Destination))
+        {
+            const UCanvasPanelSlot* Source = CastChecked<UCanvasPanelSlot>(Staged);
+            if (Key == TEXT("Position"))
+            {
+                bHandled = true;
+                bMatches = Target->GetPosition() == Source->GetPosition();
+                if (Mode == ESlotUpdateMode::Apply) Target->SetPosition(Source->GetPosition());
+            }
+            else if (Key == TEXT("Size"))
+            {
+                bHandled = true;
+                bMatches = Target->GetSize() == Source->GetSize();
+                if (Mode == ESlotUpdateMode::Apply) Target->SetSize(Source->GetSize());
+            }
+            else if (Key == TEXT("Anchors"))
+            {
+                bHandled = true;
+                bMatches = Target->GetAnchors() == Source->GetAnchors();
+                if (Mode == ESlotUpdateMode::Apply) Target->SetAnchors(Source->GetAnchors());
+            }
+            else if (Key == TEXT("Alignment"))
+            {
+                bHandled = true;
+                bMatches = Target->GetAlignment() == Source->GetAlignment();
+                if (Mode == ESlotUpdateMode::Apply) Target->SetAlignment(Source->GetAlignment());
+            }
+            else if (Key == TEXT("ZOrder"))
+            {
+                bHandled = true;
+                bMatches = Target->GetZOrder() == Source->GetZOrder();
+                if (Mode == ESlotUpdateMode::Apply) Target->SetZOrder(Source->GetZOrder());
+            }
+            else if (Key == TEXT("AutoSize"))
+            {
+                bHandled = true;
+                bMatches = Target->GetAutoSize() == Source->GetAutoSize();
+                if (Mode == ESlotUpdateMode::Apply) Target->SetAutoSize(Source->GetAutoSize());
+            }
+        }
+        else if (UBorderSlot* Target = Cast<UBorderSlot>(Destination))
+        {
+            const UBorderSlot* Source = CastChecked<UBorderSlot>(Staged);
+            if (Key == TEXT("HAlign"))
+            {
+                bHandled = true;
+                bMatches = Target->GetHorizontalAlignment() == Source->GetHorizontalAlignment();
+                if (Mode == ESlotUpdateMode::Apply)
+                    Target->SetHorizontalAlignment(Source->GetHorizontalAlignment());
+            }
+            else if (Key == TEXT("VAlign"))
+            {
+                bHandled = true;
+                bMatches = Target->GetVerticalAlignment() == Source->GetVerticalAlignment();
+                if (Mode == ESlotUpdateMode::Apply)
+                    Target->SetVerticalAlignment(Source->GetVerticalAlignment());
+            }
+        }
+        if (!bHandled)
+        {
+            Error = FString::Printf(
+                TEXT("%s.%s: slot property unsupported by %s"),
+                *WidgetName, *Key, *Destination->GetClass()->GetName());
+            return false;
+        }
+        if (Mode == ESlotUpdateMode::Verify && !bMatches)
+        {
+            Error = FString::Printf(
+                TEXT("%s.%s: generated slot differs from staged WBP"),
+                *WidgetName, *Key);
+            return false;
+        }
+        return true;
+    }
+
     // Run the exact same traversal for preflight, apply and rollback.
     // Only existing widget properties are touched; no widget is replaced.
     bool CopyChangedProperties(const FXmlNodeDesc& Before, const FXmlNodeDesc& After,
@@ -462,6 +700,20 @@ namespace
             const FString* NewValue = After.Attributes.Find(Key);
             if (OldValue && NewValue && *OldValue == *NewValue)
             {
+                continue;
+            }
+            if (IsExportedSlotAttribute(Key))
+            {
+                if (!bDryRun && Target->Slot)
+                {
+                    Target->Slot->Modify();
+                }
+                if (!ProcessSlotChange(Before.Name, Key, Target->Slot,
+                    Source->Slot, bDryRun ? ESlotUpdateMode::Preflight
+                                         : ESlotUpdateMode::Apply, Error))
+                {
+                    return false;
+                }
                 continue;
             }
             if (!IsAllowedChange(Before.Tag, Key))
@@ -594,6 +846,16 @@ namespace
             const FString* NewValue = After.Attributes.Find(Key);
             if (OldValue && NewValue && *OldValue == *NewValue) continue;
 
+            if (IsExportedSlotAttribute(Key))
+            {
+                if (!ProcessSlotChange(Before.Name, Key,
+                    const_cast<UPanelSlot*>(ActualWidget->Slot),
+                    StageWidget->Slot, ESlotUpdateMode::Verify, Error))
+                {
+                    return false;
+                }
+                continue;
+            }
             bool bMatches = false;
             const UTextBlock* ActualText = Cast<UTextBlock>(ActualWidget);
             const UTextBlock* StageText = Cast<UTextBlock>(StageWidget);
@@ -2042,7 +2304,7 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("text can be applied"), IsAllowedChange(TEXT("Text"), TEXT("Text")));
     TestTrue(TEXT("font can be applied"), IsAllowedChange(TEXT("Text"), TEXT("Visual.Font")));
     TestTrue(TEXT("button style can be applied"), IsAllowedChange(TEXT("Button"), TEXT("Visual.WidgetStyle")));
-    TestFalse(TEXT("layout slot change rejected"), IsAllowedChange(TEXT("Text"), TEXT("HAlign")));
+    TestFalse(TEXT("slot keys are handled separately from widget allowlist"), IsAllowedChange(TEXT("Text"), TEXT("HAlign")));
     TestFalse(TEXT("arbitrary default override rejected"), IsAllowedChange(TEXT("Horizontal"), TEXT("Default.SomeProperty")));
 
     // Structural additions and reorders must not replace existing widget objects.
@@ -2293,17 +2555,18 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("dry-run does not mutate text"), FreshMoved->GetText().ToString(),
         FString(TEXT("Stable")));
 
-    // A slot-only change on an unmoved widget must still be rejected.
+    // Mixed Apply accepts valid existing slot edits, but a Row field on
+    // OverlaySlot is still refused before the WidgetTree is modified.
     FXmlNodeDesc MoveWithBadSlot;
-    TestTrue(TEXT("parse disallowed mixed slot edit"),
+    TestTrue(TEXT("parse unsupported mixed slot edit"),
         UXmlDslParser::ParseXmlString(
             TEXT("<Horizontal Name=\"MoveRoot\"><Vertical Name=\"Left\"/>"
-                "<Overlay Name=\"Right\"><Text Name=\"StaticLabel\" Text=\"Static\" HAlign=\"Left\"/>"
+                "<Overlay Name=\"Right\"><Text Name=\"StaticLabel\" Text=\"Static\" Row=\"2\"/>"
                 "<Text Name=\"MovedLabel\" Text=\"CHANGED\" FontSize=\"14\""
                 " RenderOpacity=\"0.45\"/></Overlay>"
                 "</Horizontal>"),
             MoveWithBadSlot, Error));
-    TestFalse(TEXT("mixed preflight rejects slot edit on unmoved widget"),
+    TestFalse(TEXT("mixed preflight rejects Row on OverlaySlot"),
         CopySurvivingPropertyChanges(MoveOld, MoveWithBadSlot,
             FreshTree, MoveStagedTree, true, Error));
 
@@ -2646,6 +2909,203 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
         && ButtonNestedText->GetOuter() == GetTransientPackage());
     TestTrue(TEXT("Button tree matches empty staged content"),
         CompareGeneratedStructure(ButtonTree->RootWidget, EmptyButtonTree->RootWidget, Error));
+
+    // Slot property-only Apply: a surviving HorizontalBoxSlot must remain the
+    // SAME UObject, preserving unexported Fill.SizeValue when changing the
+    // exported SizeRule. All fields are copied via type-specific UMG setters.
+    FXmlNodeDesc SlotOld, SlotNew;
+    TestTrue(TEXT("parse slot-only source"),
+        UXmlDslParser::ParseXmlString(
+            TEXT("<Horizontal Name=\"SlotRoot\"><Text Name=\"SlotText\""
+                " Text=\"Stable\"/></Horizontal>"),
+            SlotOld, Error));
+    TestTrue(TEXT("parse slot-only candidate"),
+        UXmlDslParser::ParseXmlString(
+            TEXT("<Horizontal Name=\"SlotRoot\"><Text Name=\"SlotText\""
+                " Text=\"Stable\" Padding=\"5,6,7,8\" HAlign=\"right\""
+                " VAlign=\"center\" SizeParam=\"fill\"/></Horizontal>"),
+            SlotNew, Error));
+    UWidgetTree* SlotTree = NewObject<UWidgetTree>();
+    UHorizontalBox* SlotRoot = SlotTree->ConstructWidget<UHorizontalBox>(
+        UHorizontalBox::StaticClass(), TEXT("SlotRoot"));
+    SlotTree->RootWidget = SlotRoot;
+    UTextBlock* SlotText = SlotTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("SlotText"));
+    UHorizontalBoxSlot* OriginalSlot = Cast<UHorizontalBoxSlot>(
+        SlotRoot->AddChild(SlotText));
+    UWidgetTree* StageSlotTree = NewObject<UWidgetTree>();
+    UHorizontalBox* StageSlotRoot = StageSlotTree->ConstructWidget<UHorizontalBox>(
+        UHorizontalBox::StaticClass(), TEXT("SlotRoot"));
+    StageSlotTree->RootWidget = StageSlotRoot;
+    UTextBlock* StageSlotText = StageSlotTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("SlotText"));
+    UHorizontalBoxSlot* StageSlot = Cast<UHorizontalBoxSlot>(
+        StageSlotRoot->AddChild(StageSlotText));
+    if (!OriginalSlot || !StageSlot)
+    {
+        AddError(TEXT("slot test fixture failed to construct HorizontalBox slots"));
+        return false;
+    }
+    FSlateChildSize OriginalSize = OriginalSlot->GetSize();
+    OriginalSize.Value = 3.5f; // Not exported to DSL: must not be overwritten.
+    OriginalSlot->SetSize(OriginalSize);
+    StageSlot->SetPadding(FMargin(5.f, 6.f, 7.f, 8.f));
+    StageSlot->SetHorizontalAlignment(HAlign_Right);
+    StageSlot->SetVerticalAlignment(VAlign_Center);
+    FSlateChildSize StageSize = StageSlot->GetSize();
+    StageSize.SizeRule = ESlateSizeRule::Fill;
+    StageSlot->SetSize(StageSize);
+
+    TestTrue(TEXT("slot-only preflight accepts exported fields"),
+        CopyChangedProperties(SlotOld, SlotNew, SlotTree,
+            StageSlotTree, true, Error));
+    TestTrue(TEXT("slot preflight does not mutate"),
+        OriginalSlot->GetPadding() != StageSlot->GetPadding());
+    TestTrue(TEXT("slot-only Apply copies edited values"),
+        CopyChangedProperties(SlotOld, SlotNew, SlotTree,
+            StageSlotTree, false, Error));
+    TestTrue(TEXT("slot UObject identity remains unchanged"),
+        SlotText->Slot == OriginalSlot);
+    TestTrue(TEXT("slot-only padding copied"),
+        OriginalSlot->GetPadding() == StageSlot->GetPadding());
+    TestTrue(TEXT("slot-only HAlign copied"),
+        OriginalSlot->GetHorizontalAlignment() == HAlign_Right);
+    TestTrue(TEXT("slot-only VAlign copied"),
+        OriginalSlot->GetVerticalAlignment() == VAlign_Center);
+    TestTrue(TEXT("slot-only SizeRule copied"),
+        OriginalSlot->GetSize().SizeRule == ESlateSizeRule::Fill);
+    TestTrue(TEXT("slot-only non-exported Fill value preserved"),
+        FMath::IsNearlyEqual(OriginalSlot->GetSize().Value, 3.5f));
+    for (const FString& Attribute :
+        { TEXT("Padding"), TEXT("HAlign"), TEXT("VAlign"), TEXT("SizeParam") })
+    {
+        TestTrue(FString::Printf(TEXT("slot field verified: %s"), *Attribute),
+            ProcessSlotChange(TEXT("SlotText"), Attribute, OriginalSlot,
+                StageSlot, ESlotUpdateMode::Verify, Error));
+    }
+    FXmlNodeDesc UnsupportedSlotChange;
+    TestTrue(TEXT("parse unsupported slot attribute"),
+        UXmlDslParser::ParseXmlString(
+            TEXT("<Horizontal Name=\"SlotRoot\"><Text Name=\"SlotText\""
+                " Text=\"Stable\" Row=\"2\"/></Horizontal>"),
+            UnsupportedSlotChange, Error));
+    TestFalse(TEXT("Row cannot be changed on HorizontalBoxSlot"),
+        CopyChangedProperties(SlotOld, UnsupportedSlotChange, SlotTree,
+            StageSlotTree, true, Error));
+    TestTrue(TEXT("unsupported slot error identifies attribute"),
+        Error.Contains(TEXT("SlotText.Row")));
+
+    // Mixed structural + slot-property change must use stable names even
+    // after children are reordered, and preserve the original slot UObject.
+    FXmlNodeDesc MixedSlotOld, MixedSlotNew;
+    TestTrue(TEXT("parse mixed reorder/slot source"),
+        UXmlDslParser::ParseXmlString(
+            TEXT("<Horizontal Name=\"MixSlotRoot\"><Text Name=\"First\"/>"
+                "<Text Name=\"Second\"/></Horizontal>"),
+            MixedSlotOld, Error));
+    TestTrue(TEXT("parse mixed reorder/slot candidate"),
+        UXmlDslParser::ParseXmlString(
+            TEXT("<Horizontal Name=\"MixSlotRoot\"><Text Name=\"Second\"/>"
+                "<Text Name=\"First\" Padding=\"9\" HAlign=\"center\"/></Horizontal>"),
+            MixedSlotNew, Error));
+    UWidgetTree* MixedSlotTree = NewObject<UWidgetTree>();
+    UHorizontalBox* MixedSlotRoot = MixedSlotTree->ConstructWidget<UHorizontalBox>(
+        UHorizontalBox::StaticClass(), TEXT("MixSlotRoot"));
+    MixedSlotTree->RootWidget = MixedSlotRoot;
+    UTextBlock* First = MixedSlotTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("First"));
+    UTextBlock* Second = MixedSlotTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("Second"));
+    UPanelSlot* FirstSlot = MixedSlotRoot->AddChild(First);
+    MixedSlotRoot->AddChild(Second);
+    UWidgetTree* MixedSlotStageTree = NewObject<UWidgetTree>();
+    UHorizontalBox* MixedSlotStageRoot = MixedSlotStageTree->ConstructWidget<UHorizontalBox>(
+        UHorizontalBox::StaticClass(), TEXT("MixSlotRoot"));
+    MixedSlotStageTree->RootWidget = MixedSlotStageRoot;
+    UTextBlock* StageSecond = MixedSlotStageTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("Second"));
+    UTextBlock* StageFirst = MixedSlotStageTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("First"));
+    MixedSlotStageRoot->AddChild(StageSecond);
+    UHorizontalBoxSlot* StageFirstSlot = Cast<UHorizontalBoxSlot>(
+        MixedSlotStageRoot->AddChild(StageFirst));
+    if (!StageFirstSlot)
+    {
+        AddError(TEXT("mixed slot fixture failed to construct staged slot"));
+        return false;
+    }
+    StageFirstSlot->SetPadding(FMargin(9.f));
+    StageFirstSlot->SetHorizontalAlignment(HAlign_Center);
+    int32 MixedSlotAdded = 0, MixedSlotPanels = 0;
+    int32 MixedSlotMoved = 0, MixedSlotDeleted = 0;
+    TestTrue(TEXT("structural preflight permits reordered panel"),
+        ValidateStructuralPlan(MixedSlotOld, MixedSlotNew,
+            MixedSlotTree, MixedSlotStageTree, MixedSlotAdded,
+            MixedSlotPanels, MixedSlotMoved, MixedSlotDeleted, Error));
+    TestTrue(TEXT("mixed slot preflight allows supported slot edits"),
+        CopySurvivingPropertyChanges(MixedSlotOld, MixedSlotNew,
+            MixedSlotTree, MixedSlotStageTree, true, Error));
+    TestTrue(TEXT("reorder before slot update"),
+        ApplyStructuralPlan(MixedSlotOld, MixedSlotNew,
+            MixedSlotTree, MixedSlotStageTree, Error));
+    TestTrue(TEXT("apply slot update after reorder"),
+        CopySurvivingPropertyChanges(MixedSlotOld, MixedSlotNew,
+            MixedSlotTree, MixedSlotStageTree, false, Error));
+    TestTrue(TEXT("reordered original widget identity retained"),
+        MixedSlotRoot->GetChildAt(1) == First);
+    TestTrue(TEXT("reordered original slot UObject identity retained"),
+        First->Slot == FirstSlot);
+    TestTrue(TEXT("reordered slot padding applied to correct widget"),
+        Cast<UHorizontalBoxSlot>(First->Slot)->GetPadding() == FMargin(9.f));
+    TestTrue(TEXT("reordered slot alignment applied"),
+        Cast<UHorizontalBoxSlot>(First->Slot)->GetHorizontalAlignment() == HAlign_Center);
+    TestTrue(TEXT("reordered slot hierarchy matches staged"),
+        CompareGeneratedStructure(MixedSlotRoot, MixedSlotStageRoot, Error));
+
+    // CanvasPanel is not a supported structural parent yet, but its
+    // *existing* slot fields can be edited in property-only Apply.
+    UWidgetTree* CanvasTree = NewObject<UWidgetTree>();
+    UCanvasPanel* CanvasRoot = CanvasTree->ConstructWidget<UCanvasPanel>(
+        UCanvasPanel::StaticClass(), TEXT("CanvasRoot"));
+    CanvasTree->RootWidget = CanvasRoot;
+    UTextBlock* CanvasText = CanvasTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("CanvasText"));
+    UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(
+        CanvasRoot->AddChild(CanvasText));
+    UWidgetTree* CanvasStageTree = NewObject<UWidgetTree>();
+    UCanvasPanel* CanvasStageRoot = CanvasStageTree->ConstructWidget<UCanvasPanel>(
+        UCanvasPanel::StaticClass(), TEXT("CanvasRoot"));
+    CanvasStageTree->RootWidget = CanvasStageRoot;
+    UTextBlock* CanvasStageText = CanvasStageTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("CanvasText"));
+    UCanvasPanelSlot* StageCanvasSlot = Cast<UCanvasPanelSlot>(
+        CanvasStageRoot->AddChild(CanvasStageText));
+    if (!CanvasSlot || !StageCanvasSlot)
+    {
+        AddError(TEXT("canvas slot fixture construction failed"));
+        return false;
+    }
+    StageCanvasSlot->SetPosition(FVector2D(30.f, 40.f));
+    StageCanvasSlot->SetSize(FVector2D(110.f, 55.f));
+    StageCanvasSlot->SetZOrder(7);
+    TestTrue(TEXT("Canvas slot Position accepted"),
+        ProcessSlotChange(TEXT("CanvasText"), TEXT("Position"), CanvasSlot,
+            StageCanvasSlot, ESlotUpdateMode::Preflight, Error));
+    TestTrue(TEXT("Canvas slot Size accepted"),
+        ProcessSlotChange(TEXT("CanvasText"), TEXT("Size"), CanvasSlot,
+            StageCanvasSlot, ESlotUpdateMode::Apply, Error));
+    TestTrue(TEXT("Canvas slot ZOrder accepted"),
+        ProcessSlotChange(TEXT("CanvasText"), TEXT("ZOrder"), CanvasSlot,
+            StageCanvasSlot, ESlotUpdateMode::Apply, Error));
+    TestTrue(TEXT("Canvas slot Size verification"),
+        ProcessSlotChange(TEXT("CanvasText"), TEXT("Size"), CanvasSlot,
+            StageCanvasSlot, ESlotUpdateMode::Verify, Error));
+    TestFalse(TEXT("Canvas slot refuses unsupported HAlign"),
+        ProcessSlotChange(TEXT("CanvasText"), TEXT("HAlign"), CanvasSlot,
+            StageCanvasSlot, ESlotUpdateMode::Preflight, Error));
+    TestTrue(TEXT("Canvas rejected attribute identifies widget"),
+        Error.Contains(TEXT("CanvasText.HAlign")));
+
     return true;
 }
 #endif

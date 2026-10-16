@@ -156,12 +156,16 @@ XmlUI.AdoptBaseline Wbp=/Game/UI/WBP_ListEntry_ApplyTest Confirm=YES
 XmlUI.RebakeApply Wbp=/Game/UI/WBP_ListEntry File=/absolute/path/ListEntry.xml Confirm=YES
 ```
 
-命令会重新执行预览和冲突检测，编译并重新加载临时候选 WBP。**属性模式**允许更改 `Text`、文本 `Color`、`FontSize` / `FontPath` / `Typeface`、`Visibility`、`RenderOpacity` 和支持的原生 `Visual.*`。**有限结构模式**支持在现有 `VerticalBox`、`HorizontalBox` 和 `Overlay` 内添加叶子节点 `Text`、`Image`、`Spacer`、调整顺序，以及在这些现有容器之间**移动已有的 Text/Image/Spacer 叶子控件**。保留原控件 UObject 和 GUID；未移动控件保留原插槽，移动控件使用从编译候选 WBP 复制的新目标插槽（允许 `Padding`、`HAlign`、`VAlign`、`SizeParam` 随目标改变）。预览会将移动显示为单个 `moved from ... to ...`，而不是删除和添加。现在可在一次 Apply 中混合结构更改和白名单属性更改（如 Text、Color、Font、Visibility、RenderOpacity、Visual.*）。根据稳定的 Name 匹配原有节点，预检查所有属性变化，保存 UObject/GUID。移动的叶子节点可以改变目标插槽；未移动节点的插槽修改仍禁止。现在可以实验性地**删除无引用的完整控件子树**，其根控件必须属于现有 Vertical/Horizontal/Overlay 容器，或是现有单内容容器 `UContentWidget`（例如 Button、Border、SizeBox）的唯一子控件，所有后代必须同时从目标 XML 中删除。预检查会逐个扫描 C++/BindWidget 属性、Blueprint 图表引用、UMG 设计器及动画绑定。每个删除的 UObject（包括嵌套容器）都会转移到临时包，然后删除对应 GUID，避免 UE5.8 编译器继续枚举旧控件。保留未删除控件的对象和 GUID。禁止删除仍被引用的节点、只删除子树的一部分、同一次操作将后代移出被删除的容器，以及重命名、非白名单属性更改、不支持的父容器及无有效基线的资产。
+命令会重新执行预览和冲突检测，编译并重新加载临时候选 WBP。**属性模式**允许更改 `Text`、文本 `Color`、`FontSize` / `FontPath` / `Typeface`、`Visibility`、`RenderOpacity` 和支持的原生 `Visual.*`。**有限结构模式**支持在现有 `VerticalBox`、`HorizontalBox` 和 `Overlay` 内添加叶子节点 `Text`、`Image`、`Spacer`、调整顺序，以及在这些现有容器之间**移动已有的 Text/Image/Spacer 叶子控件**。保留原控件 UObject 和 GUID；未移动控件保留原插槽，移动控件使用从编译候选 WBP 复制的新目标插槽（允许 `Padding`、`HAlign`、`VAlign`、`SizeParam` 随目标改变）。预览会将移动显示为单个 `moved from ... to ...`，而不是删除和添加。现在可在一次 Apply 中混合结构更改和白名单属性更改（如 Text、Color、Font、Visibility、RenderOpacity、Visual.*）。根据稳定的 Name 匹配原有节点，预检查所有属性变化，保存 UObject/GUID。移动的叶子节点仍使用目标容器重新生成的插槽；现在也可以直接修改未移动节点的插槽属性并保留原 UPanelSlot 对象：线性容器和 ScrollBox 的 Padding/HAlign/VAlign/SizeParam，Overlay/WrapBox 的 Padding/对齐，UniformGrid 的 Row/Column/对齐，Canvas 的 Position/Size/Anchors/Alignment/ZOrder/AutoSize，以及 Border 的对齐。预检查拒绝不支持的属性；修改 SizeParam 时只更新 Auto/Fill 规则并保留未导出的 Fill 系数。现在可以实验性地**删除无引用的完整控件子树**，其根控件必须属于现有 Vertical/Horizontal/Overlay 容器，或是现有单内容容器 `UContentWidget`（例如 Button、Border、SizeBox）的唯一子控件，所有后代必须同时从目标 XML 中删除。预检查会逐个扫描 C++/BindWidget 属性、Blueprint 图表引用、UMG 设计器及动画绑定。每个删除的 UObject（包括嵌套容器）都会转移到临时包，然后删除对应 GUID，避免 UE5.8 编译器继续枚举旧控件。保留未删除控件的对象和 GUID。禁止删除仍被引用的节点、只删除子树的一部分、同一次操作将后代移出被删除的容器，以及重命名、非白名单属性更改、不支持的父容器及无有效基线的资产。
 
 修改前 XmlUI 会把原始 `.uasset` 单独备份到 `Saved/XmlUIBackups/`。应用会保留原有资产路径、控件对象和 Blueprint 图表，重新编译后与临时候选的导出结果比对。失败时会从备份恢复完整 `.uasset` 文件，验证字节一致性，重新加载 WBP 并比较 XML、源元数据和 GUID 表。如恢复不完整，日志输出 `XmlUI rollback: INCOMPLETE`。进程崩溃或重载失败时仍可能需要手动从备份恢复。保存成功后更新 `XmlUI.SourceDsl` / `XmlUI.SourceHash`。最后清理临时资产，可能清空编辑器的 Undo 历史。此功能**仍属实验性**，请先在复制的测试 WBP 上验证；不支持 Blueprint 图表合并及移动有子节点的容器或子树；仅允许整体删除经过依赖检查的子树。结构操作会检查编译后的控件树。结构模式已在 SMA 的 UE5.8 中试运行，初次测试发现新加入的控件缺少变量 GUID，从而触发了编译器 handled ensure。现在 Apply 会在编译前为新控件登记 GUID，并修复旧版本留下的缺失 GUID，同时保持已有控件及动画 GUID 不变。结构新增与 GUID 处理、三个回滚注入点已在 UE5.8 验证；跨容器移动和回滚已通过 SMA 的 UE5.8 测试；叶子删除和依赖检查已在 SMA UE5.8 验证；**新的整体子树删除尚未在 UE5.8 编译测试**，请先在可丢弃的 WBP 上测试。
 
 
 
+
+**测试已有控件的槽属性修改（实验性）**
+
+对已保存且有有效基线的测试 WBP，直接修改现有子节点的 Padding/HAlign/VAlign/SizeParam。Preview 应显示差异并为 READY；普通 Apply 应保留原 Widget/Slot UObject 和 GUID。也可将槽属性更新与结构新增、删除、移动、排序组合使用。不支持的属性（例如 HorizontalBoxSlot 的 Row）必须在修改前拒绝。
 
 **测试安全删除叶子控件与子树（实验性）**
 

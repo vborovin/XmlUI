@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Experimental in-place UMG panel-slot property Re-bake: copy and compile-verify supported slot fields on existing widgets without reparenting, in both property-only and mixed Apply. Supports Padding/HAlign/VAlign/SizeParam on compatible box/scroll slots, Overlay/Wrap padding/alignment, UniformGrid row/column/alignment, Canvas geometry/anchors/ZOrder/AutoSize and Border alignment. Keep original UPanelSlot UObject and non-exported size coefficient; validate unsupported slot/class combinations before mutation.
+- Automation coverage for property-only horizontal slot changes, rule-only Fill adjustment, unsupported slot fields, mixed reorder plus existing-slot edit, and Canvas field validation.
 - Mixed structural/property re-bake: existing widgets now receive allowlisted property edits by stable name after structural operations; staging preflight rejects unsupported edits and compiled output is checked.
 - Regression tests for moving a Text while changing Text/RenderOpacity, forbidding unmoved-slot changes, and combining insert/delete with text edits.
 - Experimental whole-subtree deletion in Structural Re-bake: remove an existing nested container and every descendant only when the parent panel is supported, the entire subtree is absent from the target XML, and all descendant dependency checks pass. Evacuate every removed UObject to the transient package before pruning each widget GUID; verify remaining identities and compiled hierarchy. Regression covers recursive deletion, a descendant animation binding and rejected partial subtree deletion.
