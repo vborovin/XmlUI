@@ -163,7 +163,7 @@ Before changing the WBP, XmlUI saves a separate backup of the original `.uasset`
 
 **Test rollback on a disposable managed WBP (development editor only)**
 
-Prepare an XML with one new leaf widget and a target WBP for which `RebakePreview` reports `READY`. Run the following commands separately; each deliberately returns `FAILED` and should also log `XmlUI rollback: VERIFIED`:
+Prepare an XML with one new leaf widget and a target WBP for which `RebakePreview` reports `READY` **with `requestedChanges > 0` and `structureChanged=yes`**. A no-op XML is rejected for fault injection. If the restored .uasset is identical to the backup, XmlUI discards the dirty in-memory WBP state before package reload; if reload fails, the package is marked dirty again. Run the following commands separately; each deliberately returns `FAILED` and should also log `XmlUI rollback: VERIFIED`:
 
 ```text
 XmlUI.RebakeApply Wbp=/Game/UI/WBP_RollbackTest File=/absolute/path/structural.xml Confirm=YES TestFailAt=AfterMutation

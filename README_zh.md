@@ -163,7 +163,7 @@ XmlUI.RebakeApply Wbp=/Game/UI/WBP_ListEntry File=/absolute/path/ListEntry.xml C
 
 **在可丢弃的测试 WBP 上检查回滚（仅开发编辑器）**
 
-准备一个仅新增叶子控件的 XML，确保预览结果为 `READY`。分别执行下列命令，每次会故意报告 `FAILED`，成功恢复则同时输出 `XmlUI rollback: VERIFIED`：
+准备一个仅新增叶子控件的 XML，确保预览结果为 `READY`，并有 `requestedChanges > 0` 和 `structureChanged=yes`。无差异的 XML 不允许注入失败。确认磁盘资产与备份逐字节一致后才会清除内存包的 dirty 标记以允许重新加载；如果重载失败，会重新标记为 dirty。分别执行下列命令，每次会故意报告 `FAILED`，成功恢复则同时输出 `XmlUI rollback: VERIFIED`：
 
 ```text
 XmlUI.RebakeApply Wbp=/Game/UI/WBP_RollbackTest File=/absolute/path/structural.xml Confirm=YES TestFailAt=AfterMutation

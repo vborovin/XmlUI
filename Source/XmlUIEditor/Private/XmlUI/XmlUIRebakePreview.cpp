@@ -989,13 +989,36 @@ namespace
                 bBytesMatch ? TEXT("yes") : TEXT("no"));
         }
 
+        // ReloadPackages deliberately refuses packages marked dirty. Apply
+        // marks the source WBP dirty even on a failed mutation, and cancelling
+        // FScopedTransaction does not clear that flag. Only after verifying
+        // that the ORIGINAL on-disk .uasset has been restored byte-for-byte
+        // may we discard the dirty in-memory instance and reload it.
         FText ReloadError;
-        const TArray<UPackage*> Packages{ Package };
-        const bool bReloaded = UPackageTools::ReloadPackages(
-            Packages, ReloadError, false);
+        bool bReloaded = false;
+        if (bBytesMatch && Package)
+        {
+            const bool bWasDirty = Package->IsDirty();
+            if (bWasDirty)
+            {
+                UE_LOG(LogTemp, Display,
+                    TEXT("XmlUI rollback: discarding dirty in-memory WBP after verified .uasset restore"));
+                Package->SetDirtyFlag(false);
+            }
+            const TArray<UPackage*> Packages{ Package };
+            bReloaded = UPackageTools::ReloadPackages(
+                Packages, ReloadError, false);
+            if (!bReloaded && bWasDirty && IsValid(Package))
+            {
+                // The stale in-memory tree might still exist. Do not let a
+                // failed reload masquerade as an unmodified package.
+                Package->SetDirtyFlag(true);
+            }
+        }
         if (!bReloaded)
         {
-            UE_LOG(LogTemp, Error, TEXT("XmlUI rollback: package reload failed: %s"),
+            UE_LOG(LogTemp, Error,
+                TEXT("XmlUI rollback: package reload failed or skipped after disk recovery: %s"),
                 *ReloadError.ToString());
         }
 
@@ -1141,6 +1164,17 @@ namespace
 
         FXmlRebakeDiff Change;
         DiffNodes(Before, Staged, FString(), Change);
+#if WITH_DEV_AUTOMATION_TESTS
+        // A no-op failpoint only exercises package reload, not recovery of
+        // a modified WidgetTree. Require a real structural difference.
+        if (!TestFailAt.IsEmpty() && !Change.bStructureChanged)
+        {
+            UE_LOG(LogTemp, Error,
+                TEXT("XmlUI Re-bake Apply: TestFailAt requires a real structural XML change; candidate has %d differences (structural=%s)"),
+                Change.Changed, Change.bStructureChanged ? TEXT("yes") : TEXT("no"));
+            return false;
+        }
+#endif
         UWidgetBlueprint* StagedBP = LoadObject<UWidgetBlueprint>(nullptr, *AssetPath);
         if (!StagedBP || !StagedBP->WidgetTree)
         {
