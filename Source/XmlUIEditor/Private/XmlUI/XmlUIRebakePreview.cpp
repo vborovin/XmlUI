@@ -1977,13 +1977,12 @@ namespace
         FXmlRebakeDiff Change;
         DiffNodes(Before, Staged, FString(), Change);
 #if WITH_DEV_AUTOMATION_TESTS
-        // A no-op failpoint only exercises package reload, not recovery of
-        // a modified WidgetTree. Require a real structural difference.
-        if (!TestFailAt.IsEmpty() && !Change.bStructureChanged)
+        // Fault injection must exercise an actual mutation. Both structural
+        // and property-only slot edits now qualify; a no-op does not.
+        if (!TestFailAt.IsEmpty() && Change.Changed == 0)
         {
             UE_LOG(LogTemp, Error,
-                TEXT("XmlUI Re-bake Apply: TestFailAt requires a real structural XML change; candidate has %d differences (structural=%s)"),
-                Change.Changed, Change.bStructureChanged ? TEXT("yes") : TEXT("no"));
+                TEXT("XmlUI Re-bake Apply: TestFailAt requires at least one real XML change; candidate is a no-op"));
             return false;
         }
 #endif
@@ -2925,6 +2924,11 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
                 " Text=\"Stable\" Padding=\"5,6,7,8\" HAlign=\"right\""
                 " VAlign=\"center\" SizeParam=\"fill\"/></Horizontal>"),
             SlotNew, Error));
+    FXmlRebakeDiff SlotOnlyDiff;
+    DiffNodes(SlotOld, SlotNew, FString(), SlotOnlyDiff);
+    TestTrue(TEXT("slot-only edit is a non-structural real change"),
+        SlotOnlyDiff.Changed > 0 && !SlotOnlyDiff.bStructureChanged);
+
     UWidgetTree* SlotTree = NewObject<UWidgetTree>();
     UHorizontalBox* SlotRoot = SlotTree->ConstructWidget<UHorizontalBox>(
         UHorizontalBox::StaticClass(), TEXT("SlotRoot"));
