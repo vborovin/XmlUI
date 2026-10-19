@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Typed value validation for ranges, colors, vectors/margins, alignments, booleans, ScaleBox enums, and brush resource-path syntax.
 
 ### Fixed
+- Fix UE5.8 Clang `-Werror,-Wshadow` in slot update branches by naming Canvas/Border target pointers distinctly, and resolve `TObjectPtr<UPanelSlot>` with `.Get()` for compiled verification instead of applying `const_cast` to the wrapper.
 - Fix structural insertion from a staged widget: duplicated Slot metadata may retain a parent pointing to the disposable candidate panel, causing `existing 'MixedTestNote' belongs to another panel`. Clear the duplicated Slot before constructing the real destination slot. Add regression tests for original/candidate parent ownership in plain and mixed insertions.
 - Structural subtree deletion now accepts removing the *sole child* of existing UContentWidget parents (Button, Border, SizeBox, etc.), provided the staged content is empty; adding, replacing or reordering content remains unsupported. Regression covers SMA's `EntryBtn → VerticalBox_0` scenario and rejects replacing Button content.
 - UE5.8 UMG compiler ensure on guarded leaf deletion: `UWidgetTree::RemoveWidget()` detached the widget from the hierarchy but kept its UObject under the source `WidgetTree`. Move the removed object into the transient package with a unique name before pruning `WidgetVariableNameToGuidMap`; reject if source ownership remains. Regression verifies that the detached object no longer belongs to the source tree.

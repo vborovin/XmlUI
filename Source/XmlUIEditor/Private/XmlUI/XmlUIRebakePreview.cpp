@@ -591,62 +591,62 @@ namespace
                 if (Mode == ESlotUpdateMode::Apply) Target->SetColumn(Source->GetColumn());
             }
         }
-        else if (UCanvasPanelSlot* Target = Cast<UCanvasPanelSlot>(Destination))
+        else if (UCanvasPanelSlot* CanvasTarget = Cast<UCanvasPanelSlot>(Destination))
         {
             const UCanvasPanelSlot* Source = CastChecked<UCanvasPanelSlot>(Staged);
             if (Key == TEXT("Position"))
             {
                 bHandled = true;
-                bMatches = Target->GetPosition() == Source->GetPosition();
-                if (Mode == ESlotUpdateMode::Apply) Target->SetPosition(Source->GetPosition());
+                bMatches = CanvasTarget->GetPosition() == Source->GetPosition();
+                if (Mode == ESlotUpdateMode::Apply) CanvasTarget->SetPosition(Source->GetPosition());
             }
             else if (Key == TEXT("Size"))
             {
                 bHandled = true;
-                bMatches = Target->GetSize() == Source->GetSize();
-                if (Mode == ESlotUpdateMode::Apply) Target->SetSize(Source->GetSize());
+                bMatches = CanvasTarget->GetSize() == Source->GetSize();
+                if (Mode == ESlotUpdateMode::Apply) CanvasTarget->SetSize(Source->GetSize());
             }
             else if (Key == TEXT("Anchors"))
             {
                 bHandled = true;
-                bMatches = Target->GetAnchors() == Source->GetAnchors();
-                if (Mode == ESlotUpdateMode::Apply) Target->SetAnchors(Source->GetAnchors());
+                bMatches = CanvasTarget->GetAnchors() == Source->GetAnchors();
+                if (Mode == ESlotUpdateMode::Apply) CanvasTarget->SetAnchors(Source->GetAnchors());
             }
             else if (Key == TEXT("Alignment"))
             {
                 bHandled = true;
-                bMatches = Target->GetAlignment() == Source->GetAlignment();
-                if (Mode == ESlotUpdateMode::Apply) Target->SetAlignment(Source->GetAlignment());
+                bMatches = CanvasTarget->GetAlignment() == Source->GetAlignment();
+                if (Mode == ESlotUpdateMode::Apply) CanvasTarget->SetAlignment(Source->GetAlignment());
             }
             else if (Key == TEXT("ZOrder"))
             {
                 bHandled = true;
-                bMatches = Target->GetZOrder() == Source->GetZOrder();
-                if (Mode == ESlotUpdateMode::Apply) Target->SetZOrder(Source->GetZOrder());
+                bMatches = CanvasTarget->GetZOrder() == Source->GetZOrder();
+                if (Mode == ESlotUpdateMode::Apply) CanvasTarget->SetZOrder(Source->GetZOrder());
             }
             else if (Key == TEXT("AutoSize"))
             {
                 bHandled = true;
-                bMatches = Target->GetAutoSize() == Source->GetAutoSize();
-                if (Mode == ESlotUpdateMode::Apply) Target->SetAutoSize(Source->GetAutoSize());
+                bMatches = CanvasTarget->GetAutoSize() == Source->GetAutoSize();
+                if (Mode == ESlotUpdateMode::Apply) CanvasTarget->SetAutoSize(Source->GetAutoSize());
             }
         }
-        else if (UBorderSlot* Target = Cast<UBorderSlot>(Destination))
+        else if (UBorderSlot* BorderTarget = Cast<UBorderSlot>(Destination))
         {
             const UBorderSlot* Source = CastChecked<UBorderSlot>(Staged);
             if (Key == TEXT("HAlign"))
             {
                 bHandled = true;
-                bMatches = Target->GetHorizontalAlignment() == Source->GetHorizontalAlignment();
+                bMatches = BorderTarget->GetHorizontalAlignment() == Source->GetHorizontalAlignment();
                 if (Mode == ESlotUpdateMode::Apply)
-                    Target->SetHorizontalAlignment(Source->GetHorizontalAlignment());
+                    BorderTarget->SetHorizontalAlignment(Source->GetHorizontalAlignment());
             }
             else if (Key == TEXT("VAlign"))
             {
                 bHandled = true;
-                bMatches = Target->GetVerticalAlignment() == Source->GetVerticalAlignment();
+                bMatches = BorderTarget->GetVerticalAlignment() == Source->GetVerticalAlignment();
                 if (Mode == ESlotUpdateMode::Apply)
-                    Target->SetVerticalAlignment(Source->GetVerticalAlignment());
+                    BorderTarget->SetVerticalAlignment(Source->GetVerticalAlignment());
             }
         }
         if (!bHandled)
@@ -849,7 +849,7 @@ namespace
             if (IsExportedSlotAttribute(Key))
             {
                 if (!ProcessSlotChange(Before.Name, Key,
-                    const_cast<UPanelSlot*>(ActualWidget->Slot),
+                    ActualWidget->Slot.Get(),
                     StageWidget->Slot, ESlotUpdateMode::Verify, Error))
                 {
                     return false;
