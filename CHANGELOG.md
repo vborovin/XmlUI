@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Experimental safe insertion of complete native VerticalBox/HorizontalBox/Overlay subtrees into existing supported structural panels. Clone the candidate WidgetTree, verify new-node ownership/closure, re-Outer every inserted widget into the original WidgetTree and preserve nested slot links; no existing UObjects/slots are replaced. Register GUIDs for every new descendant and keep full compiled-tree/export verification and rollback.
+- Regression tests cover three-level nested panel insertion with mixed property edits, original sibling and slot identity, new descendant GUIDs, staged-tree isolation, and fail-closed cases for reparenting survivors into new panels or adding unsupported widget types.
 - Experimental in-place UMG panel-slot property Re-bake: copy and compile-verify supported slot fields on existing widgets without reparenting, in both property-only and mixed Apply. Supports Padding/HAlign/VAlign/SizeParam on compatible box/scroll slots, Overlay/Wrap padding/alignment, UniformGrid row/column/alignment, Canvas geometry/anchors/ZOrder/AutoSize and Border alignment. Keep original UPanelSlot UObject and non-exported size coefficient; validate unsupported slot/class combinations before mutation.
 - Automation coverage for property-only horizontal slot changes, rule-only Fill adjustment, unsupported slot fields, mixed reorder plus existing-slot edit, and Canvas field validation.
 - Enable TestFailAt fault injection for property-only (including slot-only) updates with a real XML diff, while rejecting no-op requests.

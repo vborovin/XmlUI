@@ -1365,28 +1365,68 @@ namespace
                 continue;
             }
             const FXmlNodeDesc& Node = *Pair.Value.Node;
-            if (!Node.Children.IsEmpty()
-                || (Node.Tag != TEXT("Text") && Node.Tag != TEXT("Image")
-                    && Node.Tag != TEXT("Spacer")))
-            {
-                Error = FString::Printf(TEXT("new '%s' must be a leaf Text, Image or Spacer"), *Pair.Key);
-                return false;
-            }
-            const FStructuralNode* Parent = Old.Find(Pair.Value.ParentName);
-            UWidget* ExistingParent = ExistingTree->FindWidget(FName(*Pair.Value.ParentName));
-            const UWidget* StageParent = CandidateTree->FindWidget(FName(*Pair.Value.ParentName));
             const UWidget* StageChild = CandidateTree->FindWidget(FName(*Pair.Key));
-            UPanelWidget* Panel = Cast<UPanelWidget>(ExistingParent);
-            const UPanelWidget* SourcePanel = Cast<UPanelWidget>(StageParent);
-            if (!Parent || !Panel || !SourcePanel
-                || !IsSupportedStructuralParent(Panel)
-                || Panel->GetClass() != SourcePanel->GetClass()
-                || !StageChild || !StageChild->Slot
-                || StageChild->Slot->GetClass() != Panel->GetSlotClass())
+            const bool bNewPanel = (Node.Tag == TEXT("Vertical")
+                || Node.Tag == TEXT("Horizontal") || Node.Tag == TEXT("Overlay"))
+                && IsSupportedStructuralParent(StageChild);
+            if (!StageChild || (!bNewPanel && !IsSupportedMovedLeaf(Node)))
             {
-                Error = FString::Printf(TEXT("new '%s' needs a supported existing panel and a compatible slot"),
+                Error = FString::Printf(
+                    TEXT("new '%s' must be a native Vertical/Horizontal/Overlay or leaf Text/Image/Spacer"),
                     *Pair.Key);
                 return false;
+            }
+
+            // The first new node must belong to an existing supported panel.
+            // Its descendants may be added in the same Apply only if their
+            // parents are themselves entirely new, supported panels.
+            const bool bExistingParent = Old.Contains(Pair.Value.ParentName);
+            const FStructuralNode* Parent = bExistingParent
+                ? Old.Find(Pair.Value.ParentName)
+                : New.Find(Pair.Value.ParentName);
+            const UPanelWidget* ActualParent = bExistingParent
+                ? Cast<UPanelWidget>(ExistingTree->FindWidget(
+                    FName(*Pair.Value.ParentName))) : nullptr;
+            const UPanelWidget* StageParent = Cast<UPanelWidget>(
+                CandidateTree->FindWidget(FName(*Pair.Value.ParentName)));
+            if (!Parent || !StageParent
+                || !IsSupportedStructuralParent(StageParent)
+                || StageChild->GetParent() != StageParent
+                || !StageChild->Slot
+                || StageChild->Slot->GetClass() != StageParent->GetSlotClass()
+                || (bExistingParent
+                    ? (!IsSupportedStructuralParent(ActualParent)
+                       || ActualParent->GetClass() != StageParent->GetClass())
+                    : (Old.Contains(Pair.Value.ParentName)
+                       || !(Parent->Node->Tag == TEXT("Vertical")
+                           || Parent->Node->Tag == TEXT("Horizontal")
+                           || Parent->Node->Tag == TEXT("Overlay")))))
+            {
+                Error = FString::Printf(
+                    TEXT("new '%s' needs a supported existing/new panel and a compatible staged slot"),
+                    *Pair.Key);
+                return false;
+            }
+            if (bNewPanel)
+            {
+                const UPanelWidget* Panel = CastChecked<UPanelWidget>(StageChild);
+                if (Panel->GetChildrenCount() != Node.Children.Num())
+                {
+                    Error = FString::Printf(
+                        TEXT("new panel '%s' has a staged child count mismatch"), *Pair.Key);
+                    return false;
+                }
+                for (int32 I = 0; I < Node.Children.Num(); ++I)
+                {
+                    if (!Panel->GetChildAt(I)
+                        || Panel->GetChildAt(I)->GetName() != Node.Children[I].Name)
+                    {
+                        Error = FString::Printf(
+                            TEXT("new panel '%s' child %d differs from staged XML"),
+                            *Pair.Key, I);
+                        return false;
+                    }
+                }
             }
             ++Added;
         }
@@ -1429,6 +1469,115 @@ namespace
                 return false;
             }
             ++Reordered;
+        }
+        return true;
+    }
+
+    // A panel's child widgets are owned by the WidgetTree, not by the panel.
+    // DuplicateObject<UWidget>(Panel) would thus leave child slot references
+    // pointing at staged objects. Duplicate the WHOLE candidate WidgetTree
+    // into a temporary owner, then migrate the new subtree's widget UObjects
+    // into the original tree without changing their internal panel slots.
+    bool DuplicateNewSubtree(const FString& RootName,
+        const TMap<FString, FStructuralNode>& Old,
+        const TMap<FString, FStructuralNode>& New,
+        UWidgetTree* ExistingTree, UWidgetTree* CandidateTree,
+        TMap<FName, UWidget*>& ExistingByName, FString& Error)
+    {
+        UPackage* Transient = GetTransientPackage();
+        const FName CopyName = MakeUniqueObjectName(
+            Transient, UWidgetTree::StaticClass(), FName(TEXT("XmlUISubtreeStaging")));
+        UWidgetTree* CopiedTree = DuplicateObject<UWidgetTree>(
+            CandidateTree, Transient, CopyName);
+        UWidget* Root = CopiedTree
+            ? CopiedTree->FindWidget(FName(*RootName)) : nullptr;
+        if (!Root || !Cast<UPanelWidget>(Root))
+        {
+            Error = FString::Printf(
+                TEXT("failed to clone new subtree '%s' from staged WidgetTree"), *RootName);
+            return false;
+        }
+
+        TArray<UWidget*> Descendants;
+        TArray<UWidget*> Pending{ Root };
+        while (!Pending.IsEmpty())
+        {
+            UWidget* Current = Pending.Pop(EAllowShrinking::No);
+            if (!Current || Descendants.Contains(Current)
+                || !Current->IsIn(CopiedTree))
+            {
+                Error = FString::Printf(
+                    TEXT("new subtree '%s' contains missing, duplicate or non-owned widget"),
+                    *RootName);
+                return false;
+            }
+            const FStructuralNode* Entry = New.Find(Current->GetName());
+            if (!Entry || Old.Contains(Current->GetName())
+                || ExistingByName.Contains(Current->GetFName()))
+            {
+                Error = FString::Printf(
+                    TEXT("new subtree '%s' contains an existing or untracked widget '%s'"),
+                    *RootName, *Current->GetName());
+                return false;
+            }
+            Descendants.Add(Current);
+            if (UPanelWidget* Panel = Cast<UPanelWidget>(Current))
+            {
+                if (!IsSupportedStructuralParent(Panel)
+                    || Panel->GetChildrenCount() != Entry->Node->Children.Num())
+                {
+                    Error = FString::Printf(
+                        TEXT("new subtree '%s' has an unsupported or changed panel '%s'"),
+                        *RootName, *Current->GetName());
+                    return false;
+                }
+                for (int32 I = 0; I < Panel->GetChildrenCount(); ++I)
+                {
+                    UWidget* Child = Panel->GetChildAt(I);
+                    if (!Child || Child->GetName() != Entry->Node->Children[I].Name
+                        || Child->GetParent() != Panel)
+                    {
+                        Error = FString::Printf(
+                            TEXT("new subtree '%s' contains a mismatched child in '%s'"),
+                            *RootName, *Current->GetName());
+                        return false;
+                    }
+                    Pending.Add(Child);
+                }
+            }
+            else if (!Entry->Node->Children.IsEmpty())
+            {
+                Error = FString::Printf(
+                    TEXT("new subtree '%s' has an unsupported container '%s'"),
+                    *RootName, *Current->GetName());
+                return false;
+            }
+        }
+
+        // The cloned root carries a slot from its old copied parent. It must
+        // be detached WITHOUT RemoveFromParent(), which could mutate the
+        // cloned parent; InsertChildAt will create the destination slot.
+        Root->Slot = nullptr;
+        if (Root->GetParent())
+        {
+            Error = FString::Printf(
+                TEXT("new subtree '%s' retained the staging parent"), *RootName);
+            return false;
+        }
+        for (UWidget* Current : Descendants)
+        {
+            const FName OriginalName = Current->GetFName();
+            if (!Current->Rename(nullptr, ExistingTree,
+                REN_DontCreateRedirectors | REN_NonTransactional | REN_DoNotDirty)
+                || Current->GetOuter() != ExistingTree)
+            {
+                Error = FString::Printf(
+                    TEXT("could not adopt new widget '%s' into source WidgetTree"),
+                    *OriginalName.ToString());
+                return false;
+            }
+            Current->ClearFlags(RF_Transient);
+            ExistingByName.Add(OriginalName, Current);
         }
         return true;
     }
@@ -1610,29 +1759,39 @@ namespace
                 }
                 if (!Existing)
                 {
-                    Existing = DuplicateObject<UWidget>(StageWidget, ExistingTree, FName(*Name));
-                    if (!Existing)
+                    if (Cast<UPanelWidget>(StageWidget))
                     {
-                        Error = FString::Printf(TEXT("failed to duplicate new widget '%s'"), *Name);
-                        return false;
+                        // A newly added panel may contain its own complete
+                        // hierarchy. Adopt every descendant as a separate
+                        // UObject owned by the original WidgetTree.
+                        if (!DuplicateNewSubtree(Name, Old, New,
+                            ExistingTree, CandidateTree, ExistingByName, Error))
+                        {
+                            return false;
+                        }
+                        Existing = ExistingByName.FindRef(FName(*Name));
                     }
-                    // Duplication can copy the staged widget's Slot subobject,
-                    // whose Parent still points to the temporary candidate
-                    // panel. UWidget::GetParent() then reports a foreign panel
-                    // even though this is a newly inserted widget.
-                    // Drop only the duplicated slot, not the candidate slot:
-                    // InsertChildAt creates the real slot from StageWidget->Slot.
-                    // Do NOT call RemoveFromParent(), which would mutate the
-                    // candidate tree and destroy our slot template.
-                    Existing->Slot = nullptr;
-                    if (Existing->GetParent())
+                    else
                     {
-                        Error = FString::Printf(
-                            TEXT("new widget '%s' retained a parent after clearing staged slot"),
-                            *Name);
-                        return false;
+                        Existing = DuplicateObject<UWidget>(
+                            StageWidget, ExistingTree, FName(*Name));
+                        if (!Existing)
+                        {
+                            Error = FString::Printf(
+                                TEXT("failed to duplicate new widget '%s'"), *Name);
+                            return false;
+                        }
+                        // A staged slot references the candidate parent.
+                        // Only the candidate slot is used as insertion template.
+                        Existing->Slot = nullptr;
+                        if (Existing->GetParent())
+                        {
+                            Error = FString::Printf(
+                                TEXT("new widget '%s' retained a staging parent"), *Name);
+                            return false;
+                        }
+                        ExistingByName.Add(FName(*Name), Existing);
                     }
-                    ExistingByName.Add(FName(*Name), Existing);
                 }
                 if (!Existing->GetParent())
                 {
@@ -3109,6 +3268,192 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
             StageCanvasSlot, ESlotUpdateMode::Preflight, Error));
     TestTrue(TEXT("Canvas rejected attribute identifies widget"),
         Error.Contains(TEXT("CanvasText.HAlign")));
+
+    // Whole-subtree insertion: stage a new Vertical containing an Overlay,
+    // Text and Image, while changing Text on an existing sibling. Every newly
+    // inserted widget must be owned by the ORIGINAL WidgetTree. A simple
+    // DuplicateObject<UWidget>(NewStack) leaves children tied to staging.
+    FXmlNodeDesc SubtreeBefore, SubtreeAfter;
+    TestTrue(TEXT("parse before nested subtree addition"),
+        UXmlDslParser::ParseXmlString(
+            TEXT("<Horizontal Name=\"SubtreeRoot\">"
+                 "<Text Name=\"ExistingLabel\" Text=\"Before\"/>"
+                 "</Horizontal>"), SubtreeBefore, Error));
+    TestTrue(TEXT("parse new nested subtree and mixed property update"),
+        UXmlDslParser::ParseXmlString(
+            TEXT("<Horizontal Name=\"SubtreeRoot\">"
+                 "<Vertical Name=\"NewStack\">"
+                 "<Overlay Name=\"NewOverlay\">"
+                 "<Text Name=\"NewCaption\" Text=\"Inside\"/>"
+                 "</Overlay><Image Name=\"NewIcon\"/>"
+                 "</Vertical><Text Name=\"ExistingLabel\" Text=\"After\"/>"
+                 "</Horizontal>"), SubtreeAfter, Error));
+
+    UWidgetTree* SubtreeOldTree = NewObject<UWidgetTree>();
+    UHorizontalBox* SubtreeOldRoot =
+        SubtreeOldTree->ConstructWidget<UHorizontalBox>(
+            UHorizontalBox::StaticClass(), TEXT("SubtreeRoot"));
+    SubtreeOldTree->RootWidget = SubtreeOldRoot;
+    UTextBlock* OriginalLabel = SubtreeOldTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("ExistingLabel"));
+    OriginalLabel->SetText(FText::FromString(TEXT("Before")));
+    UPanelSlot* OriginalLabelSlot = SubtreeOldRoot->AddChild(OriginalLabel);
+
+    UWidgetTree* SubtreeStage = NewObject<UWidgetTree>();
+    UHorizontalBox* StagedSubtreeRoot =
+        SubtreeStage->ConstructWidget<UHorizontalBox>(
+            UHorizontalBox::StaticClass(), TEXT("SubtreeRoot"));
+    SubtreeStage->RootWidget = StagedSubtreeRoot;
+    UVerticalBox* StageStack = SubtreeStage->ConstructWidget<UVerticalBox>(
+        UVerticalBox::StaticClass(), TEXT("NewStack"));
+    UOverlay* StageOverlay = SubtreeStage->ConstructWidget<UOverlay>(
+        UOverlay::StaticClass(), TEXT("NewOverlay"));
+    UTextBlock* StageCaption = SubtreeStage->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("NewCaption"));
+    StageCaption->SetText(FText::FromString(TEXT("Inside")));
+    UImage* StageIcon = SubtreeStage->ConstructWidget<UImage>(
+        UImage::StaticClass(), TEXT("NewIcon"));
+    UTextBlock* StagedLabel = SubtreeStage->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("ExistingLabel"));
+    StagedLabel->SetText(FText::FromString(TEXT("After")));
+    StagedSubtreeRoot->AddChild(StageStack);
+    StageStack->AddChild(StageOverlay);
+    StageOverlay->AddChild(StageCaption);
+    StageStack->AddChild(StageIcon);
+    StagedSubtreeRoot->AddChild(StagedLabel);
+
+    int32 SubtreeAdded = 0, SubtreePanels = 0;
+    int32 SubtreeMoved = 0, SubtreeDeleted = 0;
+    TestTrue(TEXT("validate entire inserted subtree"),
+        ValidateStructuralPlan(SubtreeBefore, SubtreeAfter,
+            SubtreeOldTree, SubtreeStage, SubtreeAdded,
+            SubtreePanels, SubtreeMoved, SubtreeDeleted, Error));
+    TestEqual(TEXT("four new subtree widgets counted"), SubtreeAdded, 4);
+    TestEqual(TEXT("one existing parent affected"), SubtreePanels, 1);
+    TestEqual(TEXT("no survivors moved"), SubtreeMoved, 0);
+    TestEqual(TEXT("no widgets removed"), SubtreeDeleted, 0);
+    TestTrue(TEXT("mixed property preflight before subtree addition"),
+        CopySurvivingPropertyChanges(SubtreeBefore, SubtreeAfter,
+            SubtreeOldTree, SubtreeStage, true, Error));
+    TestTrue(TEXT("apply complete subtree insertion"),
+        ApplyStructuralPlan(SubtreeBefore, SubtreeAfter,
+            SubtreeOldTree, SubtreeStage, Error));
+    TestTrue(TEXT("apply mixed property update to sibling"),
+        CopySurvivingPropertyChanges(SubtreeBefore, SubtreeAfter,
+            SubtreeOldTree, SubtreeStage, false, Error));
+    TestEqual(TEXT("inserted subtree plus existing sibling"), SubtreeOldRoot->GetChildrenCount(), 2);
+    TestTrue(TEXT("original widget UObject preserved"),
+        SubtreeOldRoot->GetChildAt(1) == OriginalLabel);
+    TestTrue(TEXT("original widget slot UObject preserved"),
+        OriginalLabel->Slot == OriginalLabelSlot);
+    TestEqual(TEXT("original sibling property changed"), OriginalLabel->GetText().ToString(),
+        FString(TEXT("After")));
+
+    UVerticalBox* AddedStack = Cast<UVerticalBox>(
+        SubtreeOldTree->FindWidget(FName(TEXT("NewStack"))));
+    UOverlay* AddedOverlay = Cast<UOverlay>(
+        SubtreeOldTree->FindWidget(FName(TEXT("NewOverlay"))));
+    UTextBlock* AddedCaption = Cast<UTextBlock>(
+        SubtreeOldTree->FindWidget(FName(TEXT("NewCaption"))));
+    UImage* AddedIcon = Cast<UImage>(
+        SubtreeOldTree->FindWidget(FName(TEXT("NewIcon"))));
+    TestTrue(TEXT("inserted stack has source-tree ownership"),
+        AddedStack && AddedStack->GetOuter() == SubtreeOldTree);
+    TestTrue(TEXT("inserted overlay has source-tree ownership"),
+        AddedOverlay && AddedOverlay->GetOuter() == SubtreeOldTree);
+    TestTrue(TEXT("inserted text has source-tree ownership"),
+        AddedCaption && AddedCaption->GetOuter() == SubtreeOldTree);
+    TestTrue(TEXT("inserted image has source-tree ownership"),
+        AddedIcon && AddedIcon->GetOuter() == SubtreeOldTree);
+    TestTrue(TEXT("inserted stack attached to original panel"),
+        AddedStack && AddedStack->GetParent() == SubtreeOldRoot);
+    TestTrue(TEXT("nested panels keep their internal hierarchy"),
+        AddedStack && AddedOverlay && AddedCaption && AddedIcon
+        && AddedStack->GetChildAt(0) == AddedOverlay
+        && AddedStack->GetChildAt(1) == AddedIcon
+        && AddedOverlay->GetChildAt(0) == AddedCaption
+        && AddedOverlay->GetParent() == AddedStack
+        && AddedCaption->GetParent() == AddedOverlay);
+    TestTrue(TEXT("candidate subtree remained unchanged"),
+        StageStack->GetParent() == StagedSubtreeRoot
+        && StageOverlay->GetParent() == StageStack
+        && StageCaption->GetParent() == StageOverlay
+        && StageStack->GetChildAt(1) == StageIcon);
+    TestTrue(TEXT("inserted hierarchy matches staged hierarchy"),
+        CompareGeneratedStructure(SubtreeOldRoot, StagedSubtreeRoot, Error));
+
+    // Every descendant must receive a GUID; surviving GUIDs remain stable.
+    TMap<FName, FGuid> SubtreeGuids;
+    const FGuid SubtreeRootGuid = FGuid::NewGuid();
+    const FGuid ExistingLabelGuid = FGuid::NewGuid();
+    SubtreeGuids.Add(FName(TEXT("SubtreeRoot")), SubtreeRootGuid);
+    SubtreeGuids.Add(FName(TEXT("ExistingLabel")), ExistingLabelGuid);
+    int32 SubtreeAssigned = 0;
+    TestTrue(TEXT("register all subtree descendant GUIDs"),
+        EnsureWidgetVariableGuids(SubtreeOldTree, SubtreeGuids,
+            SubtreeAssigned, Error));
+    TestEqual(TEXT("each new subtree widget gets a GUID"), SubtreeAssigned, 4);
+    TestTrue(TEXT("original sibling GUID unchanged"),
+        SubtreeGuids.FindChecked(FName(TEXT("ExistingLabel"))) == ExistingLabelGuid);
+    TestTrue(TEXT("root GUID unchanged"),
+        SubtreeGuids.FindChecked(FName(TEXT("SubtreeRoot"))) == SubtreeRootGuid);
+
+    // Creating a new panel must not act as an implicit reparent operation
+    // for any existing widget; move survivors in a separate Apply first.
+    FXmlNodeDesc InvalidAdopt;
+    TestTrue(TEXT("parse invalid survivor-in-new-panel candidate"),
+        UXmlDslParser::ParseXmlString(
+            TEXT("<Horizontal Name=\"SubtreeRoot\"><Vertical Name=\"NewStack\">"
+                 "<Text Name=\"ExistingLabel\" Text=\"Before\"/>"
+                 "</Vertical></Horizontal>"), InvalidAdopt, Error));
+    UWidgetTree* InvalidOldTree = NewObject<UWidgetTree>();
+    UHorizontalBox* InvalidOldRoot = InvalidOldTree->ConstructWidget<UHorizontalBox>(
+        UHorizontalBox::StaticClass(), TEXT("SubtreeRoot"));
+    InvalidOldTree->RootWidget = InvalidOldRoot;
+    InvalidOldRoot->AddChild(InvalidOldTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("ExistingLabel")));
+    UWidgetTree* InvalidStagedTree = NewObject<UWidgetTree>();
+    UHorizontalBox* InvalidStagedRoot =
+        InvalidStagedTree->ConstructWidget<UHorizontalBox>(
+            UHorizontalBox::StaticClass(), TEXT("SubtreeRoot"));
+    InvalidStagedTree->RootWidget = InvalidStagedRoot;
+    UVerticalBox* InvalidNewStack =
+        InvalidStagedTree->ConstructWidget<UVerticalBox>(
+            UVerticalBox::StaticClass(), TEXT("NewStack"));
+    InvalidStagedRoot->AddChild(InvalidNewStack);
+    InvalidNewStack->AddChild(InvalidStagedTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("ExistingLabel")));
+    TestFalse(TEXT("reparent into newly created panel rejected"),
+        ValidateStructuralPlan(SubtreeBefore, InvalidAdopt,
+            InvalidOldTree, InvalidStagedTree, SubtreeAdded,
+            SubtreePanels, SubtreeMoved, SubtreeDeleted, Error));
+    TestTrue(TEXT("rejected survivor identifies reparenting restriction"),
+        Error.Contains(TEXT("reparenting")));
+
+    // Unsupported new widget/container types must fail during validation,
+    // rather than constructing a half-populated source WidgetTree.
+    FXmlNodeDesc UnsupportedNewWidget;
+    TestTrue(TEXT("parse unsupported new container"),
+        UXmlDslParser::ParseXmlString(
+            TEXT("<Horizontal Name=\"SubtreeRoot\">"
+                 "<Button Name=\"NewButton\"/>"
+                 "<Text Name=\"ExistingLabel\" Text=\"Before\"/>"
+                 "</Horizontal>"), UnsupportedNewWidget, Error));
+    UWidgetTree* UnsupportedStageTree = NewObject<UWidgetTree>();
+    UHorizontalBox* UnsupportedStageRoot =
+        UnsupportedStageTree->ConstructWidget<UHorizontalBox>(
+            UHorizontalBox::StaticClass(), TEXT("SubtreeRoot"));
+    UnsupportedStageTree->RootWidget = UnsupportedStageRoot;
+    UnsupportedStageRoot->AddChild(UnsupportedStageTree->ConstructWidget<UButton>(
+        UButton::StaticClass(), TEXT("NewButton")));
+    UnsupportedStageRoot->AddChild(UnsupportedStageTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("ExistingLabel")));
+    TestFalse(TEXT("new Button container rejected by safe subtree policy"),
+        ValidateStructuralPlan(SubtreeBefore, UnsupportedNewWidget,
+            InvalidOldTree, UnsupportedStageTree, SubtreeAdded,
+            SubtreePanels, SubtreeMoved, SubtreeDeleted, Error));
+    TestTrue(TEXT("unsupported addition identifies new Button"),
+        Error.Contains(TEXT("NewButton")));
 
     return true;
 }
