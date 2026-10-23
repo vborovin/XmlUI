@@ -169,7 +169,11 @@ XmlUI.RebakeApply Wbp=/Game/UI/WBP_ListEntry File=/absolute/path/ListEntry.xml C
 
 **测试新增完整子树（实验性）**
 
-在有有效基线的测试 WBP 中，在现有 Vertical/Horizontal/Overlay 下插入新的 `Vertical`，内部嵌套 `Overlay`、`Text` 和 `Image`，所有新节点使用唯一名称。Preview 必须为 READY 并报告结构变化。先用 `TestFailAt=AfterCompile` 验证 `rollback=VERIFIED` 且没有编译器 ensure，再正常 Apply 并检查所有新增节点 GUID、旧 UObject/Slot 身份以及重启后的结构。暂不支持新增 Button/Border/SizeBox 容器、直接插入现有单内容容器，或将旧控件移入新建容器。
+在有有效基线的测试 WBP 中，在现有 Vertical/Horizontal/Overlay 下插入新的 `Vertical`，内部嵌套 `Overlay`、`Text` 和 `Image`，所有新节点使用唯一名称。Preview 必须为 READY 并报告结构变化。先用 `TestFailAt=AfterCompile` 验证 `rollback=VERIFIED` 且没有编译器 ensure，再正常 Apply 并检查所有新增节点 GUID、旧 UObject/Slot 身份以及重启后的结构。暂不支持新增 Button/Border/SizeBox 容器、替换已有单内容容器的当前子控件，或将旧控件移入新建容器。**现有空 UContentWidget（Button、Border、SizeBox 等）现在可以新增恰好一个 Text/Image/Spacer 叶子或一个完整原生 Vertical/Horizontal/Overlay 子树**，保留原容器 UObject、父槽和 GUID。
+
+**测试现有空单内容容器新增唯一子节点（实验性）**
+
+从已保存且有有效基线的测试 WBP 中导出 XML，确保已有 `<Button Name="EntryBtn"/>` 为空。新增且仅新增一个完整子树，例如 `<Vertical Name="VerticalBox_0"><Text Name="EntryBtnLabel" Text="Restored"/></Vertical>`。Preview 应报告 READY；`TestFailAt=AfterCompile` 必须输出 `rollback=VERIFIED`，不得出现 GUID ensure。普通 Apply 预期 `added=2`、`modifiedPanels=1`，原 Button UObject、父槽、旧 GUID 均不变。非空单内容容器内的替换、添加多个子控件及将已有节点移入其中仍不支持。
 
 **测试安全删除叶子控件与子树（实验性）**
 

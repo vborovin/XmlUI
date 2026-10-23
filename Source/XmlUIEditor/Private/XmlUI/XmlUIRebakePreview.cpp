@@ -18,6 +18,9 @@
 #include "Components/PanelWidget.h"
 #include "Components/ContentWidget.h"
 #include "Components/Button.h"
+#include "Components/Border.h"
+#include "Components/SizeBox.h"
+#include "Components/Spacer.h"
 #include "Components/PanelSlot.h"
 #include "Components/VerticalBoxSlot.h"
 #include "Components/HorizontalBoxSlot.h"
@@ -982,10 +985,9 @@ namespace
     }
 
 
-    // Content widgets (Button, Border, SizeBox, etc.) have a single
-    // content slot. Structural Re-bake still cannot insert/reorder/reparent
-    // children in these panels. The only supported change is deleting their
-    // one existing child and its complete subtree, leaving content empty.
+    // Existing one-content panels (Button, Border, SizeBox, etc.) permit
+    // only symmetric empty<->one-child transitions. Never replace an occupied
+    // child, reparent a survivor, or insert more than one child in one Apply.
     bool IsSafeContentOnlyRemoval(const FString& ParentName,
         const TMap<FString, FStructuralNode>& Old,
         const TMap<FString, FStructuralNode>& New,
@@ -1010,6 +1012,36 @@ namespace
             && Staged->GetChildrenCount() == 0
             && Parent->GetChildAt(0)
             && Parent->GetChildAt(0)->GetName() == Source->Node->Children[0].Name;
+    }
+
+    bool IsSafeContentOnlyInsertion(const FString& ParentName,
+        const TMap<FString, FStructuralNode>& Old,
+        const TMap<FString, FStructuralNode>& New,
+        const UWidgetTree* ExistingTree, const UWidgetTree* CandidateTree)
+    {
+        const FStructuralNode* Source = Old.Find(ParentName);
+        const FStructuralNode* Target = New.Find(ParentName);
+        if (!Source || !Target || !Source->Node->Children.IsEmpty()
+            || Target->Node->Children.Num() != 1
+            || Old.Contains(Target->Node->Children[0].Name)
+            || !ExistingTree || !CandidateTree)
+        {
+            return false;
+        }
+        const UContentWidget* Parent = Cast<UContentWidget>(
+            ExistingTree->FindWidget(FName(*ParentName)));
+        const UContentWidget* Staged = Cast<UContentWidget>(
+            CandidateTree->FindWidget(FName(*ParentName)));
+        const UWidget* StagedChild = Staged && Staged->GetChildrenCount() == 1
+            ? Staged->GetChildAt(0) : nullptr;
+        return Parent && Staged
+            && Parent->GetClass() == Staged->GetClass()
+            && Parent->GetChildrenCount() == 0
+            && StagedChild
+            && StagedChild->GetName() == Target->Node->Children[0].Name
+            && StagedChild->GetParent() == Staged
+            && StagedChild->Slot
+            && StagedChild->Slot->GetClass() == Parent->GetSlotClass();
     }
 
     // Deleting a subtree checks this for every widget, not only its root.
@@ -1389,14 +1421,19 @@ namespace
                     FName(*Pair.Value.ParentName))) : nullptr;
             const UPanelWidget* StageParent = Cast<UPanelWidget>(
                 CandidateTree->FindWidget(FName(*Pair.Value.ParentName)));
+            const bool bSafeContentInsert = bExistingParent
+                && IsSafeContentOnlyInsertion(Pair.Value.ParentName,
+                    Old, New, ExistingTree, CandidateTree);
             if (!Parent || !StageParent
-                || !IsSupportedStructuralParent(StageParent)
+                || (!IsSupportedStructuralParent(StageParent) && !bSafeContentInsert)
                 || StageChild->GetParent() != StageParent
                 || !StageChild->Slot
                 || StageChild->Slot->GetClass() != StageParent->GetSlotClass()
                 || (bExistingParent
-                    ? (!IsSupportedStructuralParent(ActualParent)
-                       || ActualParent->GetClass() != StageParent->GetClass())
+                    ? ((!IsSupportedStructuralParent(ActualParent)
+                        && !bSafeContentInsert)
+                        || !ActualParent
+                        || ActualParent->GetClass() != StageParent->GetClass())
                     : (Old.Contains(Pair.Value.ParentName)
                        || !(Parent->Node->Tag == TEXT("Vertical")
                            || Parent->Node->Tag == TEXT("Horizontal")
@@ -1455,10 +1492,12 @@ namespace
                 ExistingTree->FindWidget(FName(*Pair.Key)));
             if (!Panel || (!IsSupportedStructuralParent(Panel)
                 && !IsSafeContentOnlyRemoval(Pair.Key,
+                    Old, New, ExistingTree, CandidateTree)
+                && !IsSafeContentOnlyInsertion(Pair.Key,
                     Old, New, ExistingTree, CandidateTree)))
             {
                 Error = FString::Printf(
-                    TEXT("cannot change children of unsupported panel '%s' (%s); ContentWidget supports only removal of its sole child"),
+                    TEXT("cannot change children of unsupported panel '%s' (%s); ContentWidget permits only empty->one-new-child or one-child->empty"),
                     *Pair.Key, Panel ? *Panel->GetClass()->GetName() : TEXT("missing"));
                 return false;
             }
@@ -3067,6 +3106,235 @@ bool FXmlUIRebakeDiffTest::RunTest(const FString& Parameters)
         && ButtonNestedText->GetOuter() == GetTransientPackage());
     TestTrue(TEXT("Button tree matches empty staged content"),
         CompareGeneratedStructure(ButtonTree->RootWidget, EmptyButtonTree->RootWidget, Error));
+
+    // A previously emptied Button may receive exactly one fresh complete
+    // subtree. Border and SizeBox may receive one new leaf each in the same
+    // transaction. Existing UContentWidget objects, existing slots, widget
+    // GUIDs and the temporary candidate must remain unchanged.
+    const FString EmptyContentXml = TEXT(
+        "<Vertical Name=\"ContentRoot\">"
+        "<Button Name=\"NewContentButton\"/>"
+        "<Border Name=\"NewContentBorder\"/>"
+        "<SizeBox Name=\"NewContentSizeBox\"/>"
+        "<Text Name=\"PreservedText\" Text=\"Before\"/>"
+        "</Vertical>");
+    const FString FilledContentXml = TEXT(
+        "<Vertical Name=\"ContentRoot\">"
+        "<Button Name=\"NewContentButton\">"
+          "<Vertical Name=\"ContentStack\">"
+            "<Overlay Name=\"ContentLayer\">"
+              "<Text Name=\"ContentCaption\" Text=\"New caption\"/>"
+            "</Overlay>"
+          "</Vertical>"
+        "</Button>"
+        "<Border Name=\"NewContentBorder\">"
+          "<Text Name=\"BorderCaption\" Text=\"Border\"/>"
+        "</Border>"
+        "<SizeBox Name=\"NewContentSizeBox\">"
+          "<Spacer Name=\"SizeBoxSpacer\"/>"
+        "</SizeBox>"
+        "<Text Name=\"PreservedText\" Text=\"After\"/>"
+        "</Vertical>");
+    FXmlNodeDesc EmptyContent, FilledContent;
+    TestTrue(TEXT("parse empty content-widget fixture"),
+        UXmlDslParser::ParseXmlString(EmptyContentXml, EmptyContent, Error));
+    TestTrue(TEXT("parse filled content-widget fixture"),
+        UXmlDslParser::ParseXmlString(FilledContentXml, FilledContent, Error));
+
+    UWidgetTree* ContentTree = NewObject<UWidgetTree>();
+    UVerticalBox* ContentRoot = ContentTree->ConstructWidget<UVerticalBox>(
+        UVerticalBox::StaticClass(), TEXT("ContentRoot"));
+    ContentTree->RootWidget = ContentRoot;
+    UButton* OriginalButton = ContentTree->ConstructWidget<UButton>(
+        UButton::StaticClass(), TEXT("NewContentButton"));
+    UBorder* OriginalBorder = ContentTree->ConstructWidget<UBorder>(
+        UBorder::StaticClass(), TEXT("NewContentBorder"));
+    USizeBox* OriginalSizeBox = ContentTree->ConstructWidget<USizeBox>(
+        USizeBox::StaticClass(), TEXT("NewContentSizeBox"));
+    UTextBlock* PreservedText = ContentTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("PreservedText"));
+    PreservedText->SetText(FText::FromString(TEXT("Before")));
+    UPanelSlot* ButtonParentSlot = ContentRoot->AddChild(OriginalButton);
+    UPanelSlot* BorderParentSlot = ContentRoot->AddChild(OriginalBorder);
+    UPanelSlot* SizeBoxParentSlot = ContentRoot->AddChild(OriginalSizeBox);
+    UPanelSlot* TextParentSlot = ContentRoot->AddChild(PreservedText);
+
+    UWidgetTree* ContentStage = NewObject<UWidgetTree>();
+    UVerticalBox* StageContentRoot = ContentStage->ConstructWidget<UVerticalBox>(
+        UVerticalBox::StaticClass(), TEXT("ContentRoot"));
+    ContentStage->RootWidget = StageContentRoot;
+    UButton* StageContentButton = ContentStage->ConstructWidget<UButton>(
+        UButton::StaticClass(), TEXT("NewContentButton"));
+    UBorder* StageContentBorder = ContentStage->ConstructWidget<UBorder>(
+        UBorder::StaticClass(), TEXT("NewContentBorder"));
+    USizeBox* StageContentSizeBox = ContentStage->ConstructWidget<USizeBox>(
+        USizeBox::StaticClass(), TEXT("NewContentSizeBox"));
+    UVerticalBox* StageContentStack = ContentStage->ConstructWidget<UVerticalBox>(
+        UVerticalBox::StaticClass(), TEXT("ContentStack"));
+    UOverlay* StageContentLayer = ContentStage->ConstructWidget<UOverlay>(
+        UOverlay::StaticClass(), TEXT("ContentLayer"));
+    UTextBlock* StageContentCaption = ContentStage->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("ContentCaption"));
+    StageContentCaption->SetText(FText::FromString(TEXT("New caption")));
+    UTextBlock* StageBorderCaption = ContentStage->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("BorderCaption"));
+    StageBorderCaption->SetText(FText::FromString(TEXT("Border")));
+    USpacer* StageSizeSpacer = ContentStage->ConstructWidget<USpacer>(
+        USpacer::StaticClass(), TEXT("SizeBoxSpacer"));
+    UTextBlock* StagePreservedText = ContentStage->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("PreservedText"));
+    StagePreservedText->SetText(FText::FromString(TEXT("After")));
+    StageContentRoot->AddChild(StageContentButton);
+    StageContentRoot->AddChild(StageContentBorder);
+    StageContentRoot->AddChild(StageContentSizeBox);
+    StageContentRoot->AddChild(StagePreservedText);
+    StageContentButton->AddChild(StageContentStack);
+    StageContentStack->AddChild(StageContentLayer);
+    StageContentLayer->AddChild(StageContentCaption);
+    StageContentBorder->AddChild(StageBorderCaption);
+    StageContentSizeBox->AddChild(StageSizeSpacer);
+
+    int32 ContentInsertAdded = 0, ContentInsertPanels = 0;
+    int32 ContentInsertMoved = 0, ContentInsertDeleted = 0;
+    TestTrue(TEXT("preflight permits new subtree in empty Button and leaves in Border/SizeBox"),
+        ValidateStructuralPlan(EmptyContent, FilledContent,
+            ContentTree, ContentStage, ContentInsertAdded, ContentInsertPanels,
+            ContentInsertMoved, ContentInsertDeleted, Error));
+    TestEqual(TEXT("five new widget descendants"), ContentInsertAdded, 5);
+    TestEqual(TEXT("three existing content parents modified"), ContentInsertPanels, 3);
+    TestEqual(TEXT("no moved existing widgets"), ContentInsertMoved, 0);
+    TestEqual(TEXT("no deleted widgets"), ContentInsertDeleted, 0);
+    TestTrue(TEXT("preflight also accepts surviving Text edit"),
+        CopySurvivingPropertyChanges(EmptyContent, FilledContent,
+            ContentTree, ContentStage, true, Error));
+    TestTrue(TEXT("property dry run leaves original text untouched"),
+        PreservedText->GetText().ToString() == TEXT("Before"));
+    TestTrue(TEXT("apply empty to single content for all three parents"),
+        ApplyStructuralPlan(EmptyContent, FilledContent,
+            ContentTree, ContentStage, Error));
+    TestTrue(TEXT("mixed edit applies after content insertion"),
+        CopySurvivingPropertyChanges(EmptyContent, FilledContent,
+            ContentTree, ContentStage, false, Error));
+    TestTrue(TEXT("original three UContentWidget objects survive"),
+        ContentRoot->GetChildAt(0) == OriginalButton
+        && ContentRoot->GetChildAt(1) == OriginalBorder
+        && ContentRoot->GetChildAt(2) == OriginalSizeBox);
+    TestTrue(TEXT("original content parent slots survive"),
+        OriginalButton->Slot == ButtonParentSlot
+        && OriginalBorder->Slot == BorderParentSlot
+        && OriginalSizeBox->Slot == SizeBoxParentSlot
+        && PreservedText->Slot == TextParentSlot);
+    TestTrue(TEXT("existing sibling UObject is preserved"),
+        ContentRoot->GetChildAt(3) == PreservedText);
+    TestTrue(TEXT("existing Text updated"),
+        PreservedText->GetText().ToString() == TEXT("After"));
+
+    UVerticalBox* AddedContentStack = Cast<UVerticalBox>(
+        ContentTree->FindWidget(FName(TEXT("ContentStack"))));
+    UOverlay* AddedContentLayer = Cast<UOverlay>(
+        ContentTree->FindWidget(FName(TEXT("ContentLayer"))));
+    UTextBlock* AddedContentCaption = Cast<UTextBlock>(
+        ContentTree->FindWidget(FName(TEXT("ContentCaption"))));
+    UTextBlock* AddedBorderCaption = Cast<UTextBlock>(
+        ContentTree->FindWidget(FName(TEXT("BorderCaption"))));
+    USpacer* AddedSizeSpacer = Cast<USpacer>(
+        ContentTree->FindWidget(FName(TEXT("SizeBoxSpacer"))));
+    TestTrue(TEXT("new Button subtree keeps internal hierarchy"),
+        AddedContentStack && AddedContentLayer && AddedContentCaption
+        && OriginalButton->GetChildAt(0) == AddedContentStack
+        && AddedContentStack->GetChildAt(0) == AddedContentLayer
+        && AddedContentLayer->GetChildAt(0) == AddedContentCaption);
+    TestTrue(TEXT("Border and SizeBox each get their sole child"),
+        AddedBorderCaption && AddedSizeSpacer
+        && OriginalBorder->GetChildrenCount() == 1
+        && OriginalBorder->GetChildAt(0) == AddedBorderCaption
+        && OriginalSizeBox->GetChildrenCount() == 1
+        && OriginalSizeBox->GetChildAt(0) == AddedSizeSpacer);
+    TestTrue(TEXT("new content nodes are owned by source WidgetTree"),
+        AddedContentStack && AddedContentStack->GetOuter() == ContentTree
+        && AddedContentLayer && AddedContentLayer->GetOuter() == ContentTree
+        && AddedContentCaption && AddedContentCaption->GetOuter() == ContentTree
+        && AddedBorderCaption && AddedBorderCaption->GetOuter() == ContentTree
+        && AddedSizeSpacer && AddedSizeSpacer->GetOuter() == ContentTree);
+    TestTrue(TEXT("staged content remains untouched"),
+        StageContentButton->GetChildAt(0) == StageContentStack
+        && StageContentStack->GetChildAt(0) == StageContentLayer
+        && StageContentBorder->GetChildAt(0) == StageBorderCaption
+        && StageContentSizeBox->GetChildAt(0) == StageSizeSpacer);
+    TestTrue(TEXT("content insertion matches staged generated hierarchy"),
+        CompareGeneratedStructure(ContentRoot, StageContentRoot, Error));
+
+    TMap<FName, FGuid> ContentGuids;
+    const FGuid OriginalButtonGuid = FGuid::NewGuid();
+    const FGuid OriginalBorderGuid = FGuid::NewGuid();
+    const FGuid OriginalSizeBoxGuid = FGuid::NewGuid();
+    const FGuid OriginalTextGuid = FGuid::NewGuid();
+    const FGuid OriginalContentRootGuid = FGuid::NewGuid();
+    ContentGuids.Add(FName(TEXT("ContentRoot")), OriginalContentRootGuid);
+    ContentGuids.Add(FName(TEXT("NewContentButton")), OriginalButtonGuid);
+    ContentGuids.Add(FName(TEXT("NewContentBorder")), OriginalBorderGuid);
+    ContentGuids.Add(FName(TEXT("NewContentSizeBox")), OriginalSizeBoxGuid);
+    ContentGuids.Add(FName(TEXT("PreservedText")), OriginalTextGuid);
+    int32 ContentAssigned = 0;
+    TestTrue(TEXT("all five inserted content widgets receive GUIDs"),
+        EnsureWidgetVariableGuids(ContentTree, ContentGuids,
+            ContentAssigned, Error));
+    TestEqual(TEXT("only five new GUIDs assigned"), ContentAssigned, 5);
+    TestTrue(TEXT("root and existing sibling GUIDs stay stable"),
+        ContentGuids.FindChecked(FName(TEXT("ContentRoot"))) == OriginalContentRootGuid
+        && ContentGuids.FindChecked(FName(TEXT("PreservedText"))) == OriginalTextGuid);
+    TestTrue(TEXT("original SizeBox GUID remains stable"),
+        ContentGuids.FindChecked(FName(TEXT("NewContentSizeBox"))) == OriginalSizeBoxGuid);
+    TestTrue(TEXT("old Button GUID stays stable"),
+        ContentGuids.FindChecked(FName(TEXT("NewContentButton"))) == OriginalButtonGuid);
+    TestTrue(TEXT("old Border GUID stays stable"),
+        ContentGuids.FindChecked(FName(TEXT("NewContentBorder"))) == OriginalBorderGuid);
+    for (const TCHAR* NewName : { TEXT("ContentStack"), TEXT("ContentLayer"),
+        TEXT("ContentCaption"), TEXT("BorderCaption"), TEXT("SizeBoxSpacer") })
+    {
+        const FGuid* Guid = ContentGuids.Find(FName(NewName));
+        TestTrue(FString::Printf(TEXT("new child GUID valid: %s"), NewName),
+            Guid && Guid->IsValid());
+    }
+
+    // A nonempty Button still must refuse to replace its existing content.
+    // This is an unrelated fixture to ensure validation runs before mutation.
+    FXmlNodeDesc ReplacementBefore, ReplacementAfter;
+    TestTrue(TEXT("parse occupied Button baseline"),
+        UXmlDslParser::ParseXmlString(
+            TEXT("<Vertical Name=\"OccupiedRoot\"><Button Name=\"OccupiedButton\">"
+                 "<Text Name=\"OccupiedText\" Text=\"Keep\"/>"
+                 "</Button></Vertical>"), ReplacementBefore, Error));
+    TestTrue(TEXT("parse occupied Button replacement candidate"),
+        UXmlDslParser::ParseXmlString(
+            TEXT("<Vertical Name=\"OccupiedRoot\"><Button Name=\"OccupiedButton\">"
+                 "<Text Name=\"OtherText\" Text=\"Wrong\"/>"
+                 "</Button></Vertical>"), ReplacementAfter, Error));
+    UWidgetTree* OccupiedTree = NewObject<UWidgetTree>();
+    UVerticalBox* OccupiedRoot = OccupiedTree->ConstructWidget<UVerticalBox>(
+        UVerticalBox::StaticClass(), TEXT("OccupiedRoot"));
+    OccupiedTree->RootWidget = OccupiedRoot;
+    UButton* OccupiedButton = OccupiedTree->ConstructWidget<UButton>(
+        UButton::StaticClass(), TEXT("OccupiedButton"));
+    OccupiedRoot->AddChild(OccupiedButton);
+    OccupiedButton->AddChild(OccupiedTree->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("OccupiedText")));
+    UWidgetTree* ReplacementStage = NewObject<UWidgetTree>();
+    UVerticalBox* ReplacementStageRoot =
+        ReplacementStage->ConstructWidget<UVerticalBox>(
+            UVerticalBox::StaticClass(), TEXT("OccupiedRoot"));
+    ReplacementStage->RootWidget = ReplacementStageRoot;
+    UButton* ReplacementStageBtn = ReplacementStage->ConstructWidget<UButton>(
+        UButton::StaticClass(), TEXT("OccupiedButton"));
+    ReplacementStageRoot->AddChild(ReplacementStageBtn);
+    ReplacementStageBtn->AddChild(ReplacementStage->ConstructWidget<UTextBlock>(
+        UTextBlock::StaticClass(), TEXT("OtherText")));
+    TestFalse(TEXT("occupied ContentWidget refuses one-child replacement"),
+        ValidateStructuralPlan(ReplacementBefore, ReplacementAfter,
+            OccupiedTree, ReplacementStage, ContentInsertAdded,
+            ContentInsertPanels, ContentInsertMoved, ContentInsertDeleted, Error));
+    TestTrue(TEXT("failed replacement has not mutated original child"),
+        OccupiedButton->GetChildAt(0)->GetName() == TEXT("OccupiedText"));
 
     // Slot property-only Apply: a surviving HorizontalBoxSlot must remain the
     // SAME UObject, preserving unexported Fill.SizeValue when changing the
