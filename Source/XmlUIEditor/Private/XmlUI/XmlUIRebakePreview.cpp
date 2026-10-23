@@ -2437,6 +2437,11 @@ namespace
         }
 #endif
 
+        // WBP уже сохранён. Undo не способен надёжно восстановить
+        // нетранзакционные Rename, GUID и метаданные XML baseline.
+        // Cancel() удаляет запись из истории Undo, не откатывая Apply.
+        Transaction.Cancel();
+
         UE_LOG(LogTemp, Display,
             TEXT("XmlUI Re-bake Apply: SUCCESS — %d changes (added=%d, moved=%d, deleted=%d, modifiedPanels=%d, assignedGuids=%d); original WBP kept, backup=%s"),
             Change.Changed, Added, Moved, Deleted, Reordered, AssignedGuids, *BackupFile);
