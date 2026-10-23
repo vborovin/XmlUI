@@ -1041,7 +1041,7 @@ namespace
             && StagedChild->GetName() == Target->Node->Children[0].Name
             && StagedChild->GetParent() == Staged
             && StagedChild->Slot
-            && StagedChild->Slot->GetClass() == Parent->GetSlotClass();
+            && StagedChild->Slot == Staged->GetContentSlot();
     }
 
     // Deleting a subtree checks this for every widget, not only its root.
